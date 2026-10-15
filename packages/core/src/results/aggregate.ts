@@ -74,7 +74,7 @@ function buildCell(suite: Suite, server: string, model: string, rs: RunRecord[])
     server,
     model,
     runs: rs.length,
-    successRate: n === 0 ? 0 : passes / n,
+    successRate: n === 0 ? null : passes / n,
     successCi95: wilson(passes, n),
     toolAccuracy: toolVals.length === 0 ? null : toolVals.filter(Boolean).length / toolVals.length,
     contextTokensPerTask: { mean: mean(ctx), median: median(ctx) },

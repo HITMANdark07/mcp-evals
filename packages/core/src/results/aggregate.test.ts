@@ -44,7 +44,10 @@ function rec(over: Partial<RunRecord>): RunRecord {
     runKey: key, suite: 'demo', server: 'fake', model: 'm/a', task: 't1', repeat: 0,
     outcome: 'pass', end: 'final_answer', graders: [], toolSelectionOk: null,
     steps: 2, contextTokens: 100, latencyMs: 50, costUsd: 0.01, attempts: 1,
-    trace: { runKey: key, suite: 'demo', server: 'fake', model: 'm/a', task: 't1', repeat: 0, events: [], serverStderr: '' },
+    trace: {
+      runKey: key, suite: 'demo', server: 'fake', model: 'm/a', task: 't1', repeat: 0, events: [], serverStderr: '',
+      outcome: 'pass', end: 'final_answer', graders: [], attempts: 1, costUsd: 0.01, steps: 2, contextTokens: 100, latencyMs: 50,
+    },
     ...over,
   };
 }
@@ -86,10 +89,11 @@ describe('aggregate', () => {
     expect(cells[1]!.toolAccuracy).toBeNull();
   });
 
-  it('reports 0 success with CI [0,1] when every run errored', () => {
+  it('reports null success with CI [0,1] when every run errored', () => {
     const results = aggregate({ records: [rec({ outcome: 'error', end: 'infra_error' })], suites: [suite], ...meta });
+    expect(() => ResultsSchema.parse(results)).not.toThrow();
     const c = results.suites[0]!.cells[0]!;
-    expect(c.successRate).toBe(0);
+    expect(c.successRate).toBeNull();
     expect(c.successCi95).toEqual([0, 1]);
     expect(c.errorRate).toBe(1);
   });

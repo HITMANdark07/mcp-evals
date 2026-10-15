@@ -158,6 +158,7 @@ export interface GraderResult {
 
 export type Outcome = 'pass' | 'fail' | 'error';
 
+/** One line of traces.jsonl: the run's identity, why it ended, and its events. */
 export interface Trace {
   runKey: string;
   suite: string;
@@ -165,6 +166,15 @@ export interface Trace {
   model: string;
   task: string;
   repeat: number;
+  outcome: Outcome;
+  end: LoopEnd | null;
+  failReason?: string;
+  graders: GraderResult[];
+  attempts: number;
+  costUsd: number;
+  steps: number;
+  contextTokens: number;
+  latencyMs: number;
   events: TraceEvent[];
   serverStderr: string;
 }

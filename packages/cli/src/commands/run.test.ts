@@ -65,7 +65,12 @@ describe('runCommand (end-to-end over stdio, mock model)', () => {
     expect(cell.errorRate).toBe(0.5);
     const traces = (await readFile(join(dir, 'traces.jsonl'), 'utf8')).trim().split('\n');
     expect(traces).toHaveLength(4);
-    expect(JSON.parse(traces[0]!)).toHaveProperty('events');
+    const trace = JSON.parse(traces[0]!);
+    expect(trace).toHaveProperty('events');
+    expect(trace).toMatchObject({ outcome: 'pass', end: 'final_answer', attempts: 1 });
+    expect(trace.graders).toEqual([expect.objectContaining({ type: 'tool_called', pass: true }), expect.objectContaining({ type: 'answer_contains_all', pass: true })]);
+    const crashTrace = traces.map((l) => JSON.parse(l)).find((t) => t.task === 'crash');
+    expect(crashTrace).toMatchObject({ outcome: 'error', end: 'infra_error', failReason: expect.stringMatching(/server/) });
     expect(lines.some((l) => l.startsWith('SUITE'))).toBe(true);
   });
 

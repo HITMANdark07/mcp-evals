@@ -65,6 +65,14 @@ describe('runSuites', () => {
     const failed = out.records.find((r) => r.model === 'mock/b' && r.task === 'echo')!;
     expect(failed.failReason).toMatch(/tool_called/);
     expect(failed.toolSelectionOk).toBe(false);
+    // F5: the trace persists why the run ended.
+    expect(failed.trace).toMatchObject({
+      outcome: 'fail', end: 'final_answer', failReason: failed.failReason, graders: failed.graders,
+      attempts: 1, costUsd: failed.costUsd, steps: failed.steps, contextTokens: failed.contextTokens, latencyMs: failed.latencyMs,
+    });
+    const passed = out.records.find((r) => r.outcome === 'pass')!;
+    expect(passed.trace).not.toHaveProperty('failReason');
+    expect(passed.trace).toMatchObject({ outcome: 'pass', end: 'final_answer' });
     expect(out.partial).toBe(false);
     expect(out.totalCostUsd).toBeCloseTo(out.records.reduce((s, r) => s + r.costUsd, 0), 9);
   });

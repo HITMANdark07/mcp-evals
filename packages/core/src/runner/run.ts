@@ -233,19 +233,22 @@ function makeRecord(
 ): RunRecord {
   const key = runKey({ suite: target.suite.name, server: target.serverName, model: target.model, task: target.task.id, repeat: target.repeat });
   const base = { suite: target.suite.name, server: target.serverName, model: target.model, task: target.task.id, repeat: target.repeat };
-  return {
-    runKey: key,
-    ...base,
+  const summary = {
     outcome,
     end: result?.end ?? null,
     ...(failReason ? { failReason } : {}),
     graders,
-    toolSelectionOk: outcome === 'error' ? null : toolSelectionOk(graders, result?.end ?? null),
+    attempts,
+    costUsd,
     steps: result?.steps ?? 0,
     contextTokens: result?.contextTokens ?? 0,
     latencyMs: result?.latencyMs ?? 0,
-    costUsd,
-    attempts,
-    trace: { runKey: key, ...base, events: result?.events ?? [], serverStderr },
+  };
+  return {
+    runKey: key,
+    ...base,
+    ...summary,
+    toolSelectionOk: outcome === 'error' ? null : toolSelectionOk(graders, result?.end ?? null),
+    trace: { runKey: key, ...base, ...summary, events: result?.events ?? [], serverStderr },
   };
 }

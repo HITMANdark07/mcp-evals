@@ -20,7 +20,8 @@ export const ResultsSchema = z.object({
           server: z.string(),
           model: z.string(),
           runs: z.number().int().nonnegative(),
-          successRate: z.number().min(0).max(1),
+          /** null when the cell has no completed (pass/fail) runs. */
+          successRate: z.number().min(0).max(1).nullable(),
           successCi95: z.tuple([z.number(), z.number()]),
           toolAccuracy: z.number().min(0).max(1).nullable(),
           contextTokensPerTask: z.object({ mean: z.number(), median: z.number() }),

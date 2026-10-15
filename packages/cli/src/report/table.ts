@@ -13,7 +13,7 @@ export function formatTable(results: Results): string {
       c.server,
       c.model,
       String(c.runs),
-      pct(c.successRate),
+      c.successRate === null ? '–' : pct(c.successRate),
       ci(c.successCi95),
       c.toolAccuracy === null ? '–' : pct(c.toolAccuracy),
       String(Math.round(c.contextTokensPerTask.median)),
