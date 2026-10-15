@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { buildFakeServer } from '../../test/fixtures/fake-server.mjs';
-import { ConfigError, ProviderError } from '../errors.js';
+import { ConfigError, InfraError, ProviderError } from '../errors.js';
 import { FixtureManager } from '../fixtures/manager.js';
 import { createInMemoryConnector } from '../mcp/connection.js';
 import { MockProvider, parseMockScript, type MockScript } from '../providers/mock.js';
@@ -112,6 +112,114 @@ describe('runSuites', () => {
     expect(out.partial).toBe(true);
     expect(out.records.length).toBeLessThan(8);
     expect(out.totalCostUsd).toBeLessThanOrEqual(0.0035 + 0.001);
+    // F1: a budget cut-off is not a run outcome — no record, no error, but its spend is counted.
+    expect(out.records.some((r) => r.end === 'budget')).toBe(false);
+    expect(out.records.some((r) => r.outcome === 'error' && /budget/.test(r.failReason ?? ''))).toBe(false);
+    const recorded = out.records.reduce((s, r) => s + r.costUsd, 0);
+    expect(out.totalCostUsd).toBeGreaterThan(recorded);
+    expect(out.totalCostUsd).toBeCloseTo(0.004, 9);
+  });
+
+  it('interleaves the schedule so a budget cut-off still covers every model', async () => {
+    const out = await runSuites(await opts({ budgetUsd: 0.007 }));
+    expect(out.partial).toBe(true);
+    expect(out.records.length).toBeLessThan(8);
+    expect(out.records.some((r) => r.model === 'mock/a')).toBe(true);
+    expect(out.records.some((r) => r.model === 'mock/b')).toBe(true);
+  });
+
+  it('snapshots the workspace after setup and server start, so fs_state judges only the agent', async () => {
+    const suite = parseSuite(
+      `
+suite: snap
+version: 1
+servers:
+  fake: { command: unused, setup: "echo touched >> config.txt" }
+models: [mock/b]
+defaults: { repeats: 1 }
+tasks:
+  - id: idle
+    prompt: "IDLE"
+    graders: [{ type: fs_state, path: config.txt, unchanged: true }]
+`,
+      'snap.yaml',
+    );
+    const out = await runSuites({ ...(await opts()), suites: [suite] });
+    expect(out.records.map((r) => r.outcome)).toEqual(['pass']);
+  });
+
+  it('prepares every fixture before the first run, and fails before any spend', async () => {
+    let calls = 0;
+    const inner = new MockProvider(SCRIPT);
+    const counting: ModelProvider = { name: 'count', chat: (req) => (calls++, inner.chat(req)) };
+    const good = parseSuite(SUITE, 'good.yaml');
+    const bad = parseSuite(SUITE.replace('suite: demo', 'suite: broken\nfixture: { git: "/definitely/not/a/repo.git", ref: abc1234 }'), 'bad.yaml');
+    const err = await runSuites({ ...(await opts()), provider: counting, suites: [good, bad] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InfraError);
+    expect(err).toMatchObject({ kind: 'fixture' });
+    expect(calls).toBe(0);
+  });
+
+  it('does not prepare fixtures of suites with no planned runs', async () => {
+    const good = parseSuite(SUITE, 'good.yaml');
+    const bad = parseSuite(
+      SUITE.replace('suite: demo', 'suite: other\nfixture: { git: "/definitely/not/a/repo.git", ref: abc1234 }').replace('models: [mock/a, mock/b]', 'models: [mock/c]'),
+      'other.yaml',
+    );
+    const out = await runSuites({ ...(await opts()), suites: [good, bad], models: ['mock/a'], repeats: 1 });
+    expect(out.records).toHaveLength(2);
+  });
+
+  it('rejects filters that leave nothing to run', async () => {
+    await expect(runSuites(await opts({ models: [] }))).rejects.toBeInstanceOf(ConfigError);
+    await expect(runSuites(await opts({ models: [] }))).rejects.toThrow(/no runs to execute/);
+    await expect(runSuites(await opts({ servers: [] }))).rejects.toThrow(/no runs to execute/);
+    const scoped = parseSuite(SUITE.replace('prompt: "ECHO task"', 'prompt: "ECHO task"\n    servers: [fake]'), 'scoped.yaml');
+    const other = parseSuite(
+      `
+suite: two
+version: 1
+servers:
+  fake: { command: unused }
+  extra: { command: unused }
+models: [mock/a]
+tasks:
+  - id: only-fake
+    prompt: "ECHO"
+    servers: [fake]
+`,
+      'two.yaml',
+    );
+    await expect(runSuites({ ...(await opts()), suites: [scoped, other], servers: ['extra'] })).rejects.toThrow(/no runs to execute/);
+  });
+
+  it('records a non-retried error, without calling the model, when a grader names a tool the server lacks', async () => {
+    let calls = 0;
+    const inner = new MockProvider(SCRIPT);
+    const counting: ModelProvider = { name: 'count', chat: (req) => (calls++, inner.chat(req)) };
+    const suite = parseSuite(
+      `
+suite: typo
+version: 1
+servers:
+  fake: { command: unused }
+  other: { command: unused }
+models: [mock/a]
+defaults: { repeats: 1 }
+tasks:
+  - id: typo
+    prompt: "ECHO"
+    graders:
+      - { type: tool_called, tool: ecko }
+      - { type: tool_not_called, tool: also_missing }
+      - { type: tool_args_match, tool: nope, args: {}, server: other }
+`,
+      'typo.yaml',
+    );
+    const out = await runSuites({ ...(await opts()), provider: counting, suites: [suite], servers: ['fake'] });
+    expect(out.records).toHaveLength(1);
+    expect(out.records[0]).toMatchObject({ outcome: 'error', attempts: 1, failReason: 'grader references unknown tool "ecko" on server "fake"' });
+    expect(calls).toBe(0);
   });
 
   it('records error (does not throw) when listTools fails with a non-InfraError', async () => {
