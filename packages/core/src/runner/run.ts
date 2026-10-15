@@ -100,6 +100,7 @@ async function runOne(o: RunSuitesOptions, target: RunTarget, overBudget: (runCo
     let conn: McpConnection | undefined;
     let result: AgentRunResult | undefined;
     let stderr = '';
+    let backoffMs = 0;
     try {
       ws = await o.fixtures.createWorkspace(suite.fixture);
       const vars = { fixture: ws.dir };
@@ -141,17 +142,32 @@ async function runOne(o: RunSuitesOptions, target: RunTarget, overBudget: (runCo
       const reason = pass ? undefined : result.end === 'final_answer' ? describeFailures(graders) : result.failReason;
       return makeRecord(target, pass ? 'pass' : 'fail', result, graders, reason, stderr, attempts, costUsd);
     } catch (e) {
-      if (!(e instanceof InfraError)) throw e;
-      stderr = conn?.stderr() ?? stderr;
-      if (e.retryable && attempts <= retries) {
-        await sleep(500 * 2 ** (attempts - 1));
-        continue;
+      try {
+        stderr = conn?.stderr() ?? stderr;
+      } catch {
+        // ignore
       }
-      return makeRecord(target, 'error', result, [], `${e.kind}: ${e.message}`, stderr, attempts, costUsd);
+      if (!(e instanceof InfraError)) {
+        return makeRecord(target, 'error', result, [], `unexpected: ${e instanceof Error ? e.message : String(e)}`, stderr, attempts, costUsd);
+      }
+      if (e.retryable && attempts <= retries) {
+        backoffMs = 500 * 2 ** (attempts - 1);
+      } else {
+        return makeRecord(target, 'error', result, [], `${e.kind}: ${e.message}`, stderr, attempts, costUsd);
+      }
     } finally {
-      if (conn) await conn.close();
-      if (ws) await ws.dispose();
+      try {
+        if (conn) await conn.close();
+      } catch {
+        // cleanup must never throw
+      }
+      try {
+        if (ws) await ws.dispose();
+      } catch {
+        // cleanup must never throw
+      }
     }
+    await sleep(backoffMs);
   }
 }
 

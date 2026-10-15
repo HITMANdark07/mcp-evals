@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises';
+import { access, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -123,5 +123,40 @@ describe('runSuites', () => {
     expect(out.records.length).toBeGreaterThan(0);
     expect(out.records.every((r) => r.outcome === 'error')).toBe(true);
     expect(out.records[0]!.failReason).toMatch(/listTools failed: boom/);
+  });
+
+  it('records error (no crash) when the connector throws an unexpected error', async () => {
+    const boom: Connector = () => Promise.reject(new Error('spawn exploded'));
+    const out = await runSuites(await opts({ connector: boom, models: ['mock/a'], repeats: 1 }));
+    expect(out.records.every((r) => r.outcome === 'error' && r.attempts === 1)).toBe(true);
+    expect(out.records[0]!.failReason).toMatch(/unexpected: spawn exploded/);
+  });
+
+  it('records a non-retried error when server setup fails', async () => {
+    const o = await opts({ models: ['mock/a'], repeats: 1 });
+    const bad = parseSuite(SUITE.replace('setup: "echo prepared > setup.txt"', 'setup: "exit 7"'), 'bad.yaml');
+    const out = await runSuites({ ...o, suites: [bad] });
+    expect(out.records.every((r) => r.outcome === 'error' && r.attempts === 1)).toBe(true);
+  });
+
+  it('still disposes the workspace when conn.close() rejects', async () => {
+    const dirs: string[] = [];
+    const bad: Connector = async (server, ctx) => {
+      dirs.push(ctx.cwd);
+      const conn = await memory(server, ctx);
+      return {
+        ...conn,
+        listTools: () => conn.listTools(),
+        callTool: (...a: Parameters<typeof conn.callTool>) => conn.callTool(...a),
+        stderr: () => conn.stderr(),
+        close: async () => {
+          await conn.close();
+          throw new Error('close failed');
+        },
+      };
+    };
+    const out = await runSuites(await opts({ connector: bad, models: ['mock/a'], repeats: 1 }));
+    expect(out.records.map((r) => r.outcome)).toEqual(['pass', 'pass']);
+    for (const d of dirs) await expect(access(d)).rejects.toThrow();
   });
 });
