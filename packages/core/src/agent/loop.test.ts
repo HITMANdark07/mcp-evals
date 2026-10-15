@@ -104,19 +104,19 @@ describe('runAgentLoop', () => {
     expect(r.end).toBe('timeout');
   });
 
-  it('classifies unexpected provider errors as infra_error', async () => {
+  it('classifies unexpected provider errors as non-retryable infra_error', async () => {
     const { opts } = await setup([{ content: 'unused' }]);
     const bad: ModelProvider = { name: 'bad', chat: () => Promise.reject(new TypeError('fetch failed')) };
     const r = await runAgentLoop({ ...opts, provider: bad });
     expect(r.end).toBe('infra_error');
-    expect(r.infraError).toMatchObject({ kind: 'provider', retryable: true });
+    expect(r.infraError).toMatchObject({ kind: 'provider', retryable: false });
   });
 
-  it('classifies unexpected tool errors as infra_error', async () => {
+  it('classifies unexpected tool errors as non-retryable infra_error', async () => {
     const { opts, connection } = await setup([{ toolCalls: [{ name: 'echo', arguments: { text: 'a' } }] }]);
     const r = await runAgentLoop({ ...opts, connection: { ...connection, callTool: async () => { throw new Error('weird'); } } });
     expect(r.end).toBe('infra_error');
-    expect(r.infraError).toMatchObject({ kind: 'server', retryable: true });
+    expect(r.infraError).toMatchObject({ kind: 'server', retryable: false });
   });
 
   it('ends with infra_error when the server connection closes mid-task', async () => {
@@ -126,7 +126,7 @@ describe('runAgentLoop', () => {
       connection: { ...connection, callTool: async () => { throw new InfraError('server', 'connection closed', true); } },
     });
     expect(r.end).toBe('infra_error');
-    expect(r.infraError?.kind).toBe('server');
+    expect(r.infraError).toMatchObject({ kind: 'server', retryable: true });
     expect(r.events.some((e) => e.type === 'error')).toBe(true);
   });
 

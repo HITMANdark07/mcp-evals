@@ -82,7 +82,8 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
     } catch (e) {
       if (e instanceof LoopTimeout) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
       const message = e instanceof Error ? e.message : String(e);
-      const retryable = e instanceof ProviderError ? e.retryable : true;
+      // Only known-transient provider failures are retried; unknown exceptions are likely bugs and would repeat.
+      const retryable = e instanceof ProviderError ? e.retryable : false;
       events.push({ type: 'error', step: steps, t: t(), kind: 'provider', message });
       return finish('infra_error', { infraError: new InfraError('provider', message, retryable), failReason: message });
     }
@@ -118,7 +119,7 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
         result = await o.connection.callTool(tool, args, toolTimeout);
       } catch (e) {
         if (e instanceof InfraError && (now() >= deadline || (capped && now() - t0 >= toolTimeout - 5))) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
-        const infra = e instanceof InfraError ? e : new InfraError('server', e instanceof Error ? e.message : String(e), true);
+        const infra = e instanceof InfraError ? e : new InfraError('server', e instanceof Error ? e.message : String(e), false);
         events.push({ type: 'error', step: steps, t: t(), kind: infra.kind, message: infra.message });
         return finish('infra_error', { infraError: infra, failReason: infra.message });
       }
