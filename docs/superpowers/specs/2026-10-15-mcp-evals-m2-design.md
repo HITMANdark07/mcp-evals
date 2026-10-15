@@ -47,7 +47,7 @@ Produce the first real, reproducible results: a credible head-to-head of **NeatC
 - `run --resume <runId>` reloads that file, skips completed `runKey`s, reuses the runId, and produces results over old + new records. Changing suites/models between resume runs → `ConfigError` (a manifest with suite hashes and options is stored next to the JSONL).
 
 ### 3.5 Results schema v2
-Adds to each cell: `plannedRuns`, `complete` (= runs + budget-skipped == planned and no `partial` cut-off), `providerPromptTokensPerTask {mean, median}`; to each suite: `servers.<name>.version` (MCP `serverInfo.version`), `models[].provider` = pinned slug, `judge`. `successRate: number | null` (already). `schemaVersion: 2`. `aggregate` keeps producing v2; a `readResults()` helper accepts v1 and upgrades it (missing fields null/false).
+Adds to each cell: `plannedRuns` (runs the plan scheduled for this cell), `complete` (`runs === plannedRuns`, where `runs` counts every record including `error` outcomes; budget-aborted and never-started runs make it false), `providerPromptTokensPerTask {mean, median}`; to each suite: `servers.<name>.version` (MCP `serverInfo.version`), `models[].provider` = pinned slug, `judge`. `successRate: number | null` (already). `schemaVersion: 2`. `aggregate` keeps producing v2; a `readResults()` helper accepts v1 and upgrades it (missing fields null/false).
 
 ### 3.6 CLI
 - `run --provider openrouter` (new default) | `mock`; `--resume <runId>`; `--yes` to skip the cost confirmation.
@@ -76,7 +76,7 @@ Plain-string model entries remain valid for the mock provider. Task prompts may 
 - An answer-key test verifies every expected path exists and every expected symbol occurs in the pinned fixture (skipped without network/cache).
 
 ### 4.3 `suites/general-tools.yaml`
-- Same fixture. Servers: `filesystem` (as above) and `memory` (`npx -y @modelcontextprotocol/server-memory@<pinned>`).
+- Same fixture. Servers: `filesystem` (as above) and `memory` (`npx -y @modelcontextprotocol/server-memory@1.0.0`, with `MEMORY_FILE_PATH={fixture}/.memory.json` so each run's memory is isolated in its workspace).
 - ~12 tasks: read-and-answer, structured answers (`answer_json_schema`), file edits (`fs_state`), multi-step memory tasks; at most 3 tasks use `llm_judge`.
 
 ## 5. Execution of the real run
@@ -93,5 +93,4 @@ Offline only: a local fake HTTP server for OpenRouter (tool calls, usage/cost, 4
 A: schema v2 + types, tokenizer · B (parallel): OpenRouter provider; run cache + resume; new graders; `compare` + `report`; M1 follow-ups · C: CLI/runner wiring + pre-flight · D: suites + answer keys + methodology · E: live smoke + full run (needs the user's key; spends money).
 
 ## 8. Open decisions
-- `@modelcontextprotocol/server-memory` version to pin (resolve in wave D from npm).
 - Final task lists and answer keys (authored and verified in wave D).
