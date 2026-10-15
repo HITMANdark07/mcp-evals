@@ -6,6 +6,7 @@ import { buildFakeServer } from '../../test/fixtures/fake-server.mjs';
 import { createInMemoryConnector } from '../mcp/connection.js';
 import { MockProvider, parseMockScript } from '../providers/mock.js';
 import { convertTools } from '../tools/convert.js';
+import { InfraError } from '../errors.js';
 import type { ModelProvider } from '../types.js';
 import { estimateTokens } from '../util.js';
 import { runAgentLoop, type AgentLoopOptions } from './loop.js';
@@ -83,5 +84,65 @@ describe('runAgentLoop', () => {
     const hang: ModelProvider = { name: 'hang', chat: () => new Promise(() => {}) };
     const r = await runAgentLoop({ ...opts, provider: hang, timeoutMs: 50 });
     expect(r.end).toBe('timeout');
+  });
+
+  it('times out when the provider honors the abort signal', async () => {
+    const { opts } = await setup([{ content: 'unused' }]);
+    const honoring: ModelProvider = {
+      name: 'honor',
+      chat: (req) => new Promise((_, reject) => {
+        req.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      }),
+    };
+    const r = await runAgentLoop({ ...opts, provider: honoring, timeoutMs: 50 });
+    expect(r.end).toBe('timeout');
+  });
+
+  it('bounds tool calls by the run deadline', async () => {
+    const { opts } = await setup([{ toolCalls: [{ name: 'slow', arguments: { ms: 500 } }] }, { content: 'x' }], { timeoutMs: 100 });
+    const r = await runAgentLoop(opts);
+    expect(r.end).toBe('timeout');
+  });
+
+  it('classifies unexpected provider errors as infra_error', async () => {
+    const { opts } = await setup([{ content: 'unused' }]);
+    const bad: ModelProvider = { name: 'bad', chat: () => Promise.reject(new TypeError('fetch failed')) };
+    const r = await runAgentLoop({ ...opts, provider: bad });
+    expect(r.end).toBe('infra_error');
+    expect(r.infraError).toMatchObject({ kind: 'provider', retryable: true });
+  });
+
+  it('classifies unexpected tool errors as infra_error', async () => {
+    const { opts, connection } = await setup([{ toolCalls: [{ name: 'echo', arguments: { text: 'a' } }] }]);
+    const r = await runAgentLoop({ ...opts, connection: { ...connection, callTool: async () => { throw new Error('weird'); } } });
+    expect(r.end).toBe('infra_error');
+    expect(r.infraError).toMatchObject({ kind: 'server', retryable: true });
+  });
+
+  it('ends with infra_error when the server connection closes mid-task', async () => {
+    const { opts, connection } = await setup([{ toolCalls: [{ name: 'echo', arguments: { text: 'a' } }] }]);
+    const r = await runAgentLoop({
+      ...opts,
+      connection: { ...connection, callTool: async () => { throw new InfraError('server', 'connection closed', true); } },
+    });
+    expect(r.end).toBe('infra_error');
+    expect(r.infraError?.kind).toBe('server');
+    expect(r.events.some((e) => e.type === 'error')).toBe(true);
+  });
+
+  it('checks the deadline between iterations', async () => {
+    const step = { toolCalls: [{ name: 'echo', arguments: { text: 'a' } }] };
+    const { opts } = await setup([step, { content: 'never' }], { timeoutMs: 1000 });
+    let clock = 0;
+    const inner = opts.provider;
+    const provider: ModelProvider = { name: 'adv', chat: async (req) => { const res = await inner.chat(req); clock += 2000; return res; } };
+    const r = await runAgentLoop({ ...opts, provider, now: () => clock });
+    expect(r.end).toBe('timeout');
+    expect(r.events.filter((e) => e.type === 'model_call')).toHaveLength(1);
+  });
+
+  it('checks budget before max_steps', async () => {
+    const { opts } = await setup([{ content: 'x' }], { maxSteps: 0, shouldStop: () => true });
+    expect((await runAgentLoop(opts)).end).toBe('budget');
   });
 });

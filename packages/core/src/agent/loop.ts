@@ -81,11 +81,10 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
       );
     } catch (e) {
       if (e instanceof LoopTimeout) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
-      if (e instanceof ProviderError) {
-        events.push({ type: 'error', step: steps, t: t(), kind: 'provider', message: e.message });
-        return finish('infra_error', { infraError: new InfraError('provider', e.message, e.retryable), failReason: e.message });
-      }
-      throw e;
+      const message = e instanceof Error ? e.message : String(e);
+      const retryable = e instanceof ProviderError ? e.retryable : true;
+      events.push({ type: 'error', step: steps, t: t(), kind: 'provider', message });
+      return finish('infra_error', { infraError: new InfraError('provider', message, retryable), failReason: message });
     }
 
     costUsd += res.usage.costUsd;
@@ -108,16 +107,17 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
       if (tool === undefined) return finish('invalid_tool_call', { failReason: `model called unknown tool "${call.name}"` });
       if (args === null) return finish('invalid_tool_call', { failReason: `model sent invalid JSON arguments to "${tool}"` });
 
+      if (deadline - now() <= 0) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
+      const toolTimeout = Math.max(1, Math.min(o.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS, deadline - now()));
       const t0 = now();
       let result: ToolCallResult;
       try {
-        result = await o.connection.callTool(tool, args, o.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS);
+        result = await o.connection.callTool(tool, args, toolTimeout);
       } catch (e) {
-        if (e instanceof InfraError) {
-          events.push({ type: 'error', step: steps, t: t(), kind: e.kind, message: e.message });
-          return finish('infra_error', { infraError: e, failReason: e.message });
-        }
-        throw e;
+        if (now() >= deadline) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
+        const infra = e instanceof InfraError ? e : new InfraError('server', e instanceof Error ? e.message : String(e), true);
+        events.push({ type: 'error', step: steps, t: t(), kind: infra.kind, message: infra.message });
+        return finish('infra_error', { infraError: infra, failReason: infra.message });
       }
       const tokens = estimateTokens(result.text);
       contextTokens += tokens;
@@ -144,8 +144,8 @@ async function withTimeout<T>(p: Promise<T>, ms: number, controller: AbortContro
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      controller.abort();
       reject(new LoopTimeout());
+      controller.abort();
     }, ms);
   });
   try {
