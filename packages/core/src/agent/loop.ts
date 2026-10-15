@@ -108,13 +108,16 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
       if (args === null) return finish('invalid_tool_call', { failReason: `model sent invalid JSON arguments to "${tool}"` });
 
       if (deadline - now() <= 0) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
-      const toolTimeout = Math.max(1, Math.min(o.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS, deadline - now()));
+      const configured = o.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+      const remainingMs = deadline - now();
+      const capped = remainingMs < configured;
+      const toolTimeout = Math.max(1, Math.min(configured, remainingMs));
       const t0 = now();
       let result: ToolCallResult;
       try {
         result = await o.connection.callTool(tool, args, toolTimeout);
       } catch (e) {
-        if (now() >= deadline) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
+        if (e instanceof InfraError && (now() >= deadline || (capped && now() - t0 >= toolTimeout - 5))) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
         const infra = e instanceof InfraError ? e : new InfraError('server', e instanceof Error ? e.message : String(e), true);
         events.push({ type: 'error', step: steps, t: t(), kind: infra.kind, message: infra.message });
         return finish('infra_error', { infraError: infra, failReason: infra.message });

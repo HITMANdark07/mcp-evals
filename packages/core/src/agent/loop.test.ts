@@ -131,14 +131,14 @@ describe('runAgentLoop', () => {
   });
 
   it('checks the deadline between iterations', async () => {
-    const step = { toolCalls: [{ name: 'echo', arguments: { text: 'a' } }] };
-    const { opts } = await setup([step, { content: 'never' }], { timeoutMs: 1000 });
+    const step = { toolCalls: [{ name: 'echo', arguments: { text: 'a' }}] };
+    const { opts, connection } = await setup([step, { content: 'never' }], { timeoutMs: 1000 });
     let clock = 0;
-    const inner = opts.provider;
-    const provider: ModelProvider = { name: 'adv', chat: async (req) => { const res = await inner.chat(req); clock += 2000; return res; } };
-    const r = await runAgentLoop({ ...opts, provider, now: () => clock });
+    const wrapped = { ...connection, callTool: async (...a: Parameters<typeof connection.callTool>) => { const r = await connection.callTool(...a); clock += 2000; return r; } };
+    const r = await runAgentLoop({ ...opts, connection: wrapped, now: () => clock });
     expect(r.end).toBe('timeout');
     expect(r.events.filter((e) => e.type === 'model_call')).toHaveLength(1);
+    expect(r.events.filter((e) => e.type === 'tool_result')).toHaveLength(1);
   });
 
   it('checks budget before max_steps', async () => {
