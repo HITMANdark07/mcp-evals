@@ -1,3 +1,15 @@
 export * from './types.js';
 export * from './errors.js';
 export * from './util.js';
+export { loadSuite, parseSuite, SuiteError } from './suite/load.js';
+export { runGraders, taskPassed, toolSelectionOk, describeFailures, type GradeContext } from './graders.js';
+export { wilson } from './results/wilson.js';
+export { ResultsSchema, type Results } from './results/schema.js';
+export { aggregate, type AggregateInput } from './results/aggregate.js';
+export { convertTools, sanitizeToolName, type ToolMapping } from './tools/convert.js';
+export { MockProvider, parseMockScript, loadMockScript, DEFAULT_MOCK_COST_USD, type MockScript } from './providers/mock.js';
+export { FixtureManager, snapshotDir, type Workspace, type FixtureManagerOptions } from './fixtures/manager.js';
+export { stdioConnector, createInMemoryConnector, contentToText } from './mcp/connection.js';
+export { runSetup } from './mcp/setup.js';
+export { runAgentLoop, SYSTEM_PROMPT, DEFAULT_TOOL_TIMEOUT_MS, type AgentLoopOptions, type AgentRunResult } from './agent/loop.js';
+export { runSuites, type RunSuitesOptions, type RunSuitesOutput } from './runner/run.js';
