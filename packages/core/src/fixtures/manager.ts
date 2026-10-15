@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
@@ -24,6 +24,9 @@ export interface FixtureManagerOptions {
 }
 
 export class FixtureManager {
+  /** In-flight prepares keyed by cache path, so concurrent callers share one populate. */
+  private readonly inflight = new Map<string, Promise<string>>();
+
   constructor(private readonly opts: FixtureManagerOptions) {}
 
   cachePath(spec: FixtureSpec): string {
@@ -33,14 +36,30 @@ export class FixtureManager {
 
   async prepare(spec: FixtureSpec): Promise<string> {
     const dir = this.cachePath(spec);
+    const pending = this.inflight.get(dir);
+    if (pending) return pending;
+    const p = this.populate(spec, dir);
+    this.inflight.set(dir, p);
+    // Drop the memo once settled (success or failure) so a later call re-checks the disk.
+    const settle = () => {
+      if (this.inflight.get(dir) === p) this.inflight.delete(dir);
+    };
+    p.then(settle, settle);
+    return p;
+  }
+
+  private async populate(spec: FixtureSpec, dir: string): Promise<string> {
     if (await isCheckedOutAt(dir, spec.ref)) return dir;
-    await rm(dir, { recursive: true, force: true });
     await mkdir(this.opts.cacheDir, { recursive: true });
+    // Build in a temp sibling and rename into place, so `dir` is never half-prepared.
+    const tmp = `${dir}.tmp-${randomBytes(6).toString('hex')}`;
     try {
-      await execFileP('git', ['clone', '--quiet', '--no-checkout', spec.git, dir]);
-      await execFileP('git', ['-C', dir, 'checkout', '--quiet', '--detach', spec.ref]);
-    } catch (e) {
+      await execFileP('git', ['clone', '--quiet', '--no-checkout', spec.git, tmp]);
+      await execFileP('git', ['-C', tmp, 'checkout', '--quiet', '--detach', spec.ref]);
       await rm(dir, { recursive: true, force: true });
+      await rename(tmp, dir);
+    } catch (e) {
+      await rm(tmp, { recursive: true, force: true });
       throw new InfraError('fixture', `failed to fetch fixture ${spec.git}@${spec.ref}: ${(e as Error).message}`, false);
     }
     return dir;

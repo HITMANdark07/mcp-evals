@@ -73,6 +73,17 @@ describe('FixtureManager', () => {
     await ws.dispose();
   });
 
+  it('survives concurrent createWorkspace calls on a cold cache', async () => {
+    const m = await manager();
+    const spec = { git: repo, ref: firstSha };
+    const [a, b] = await Promise.all([m.createWorkspace(spec), m.createWorkspace(spec)]);
+    for (const ws of [a, b]) {
+      expect(await readFile(join(ws.dir, 'src', 'a.ts'), 'utf8')).toBe('export const a = 1;\n');
+      expect(existsSync(join(ws.dir, '.git'))).toBe(false);
+    }
+    await Promise.all([a.dispose(), b.dispose()]);
+  });
+
   it('throws a non-retryable InfraError for an unknown ref', async () => {
     const err = await (await manager()).prepare({ git: repo, ref: 'deadbeef' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(InfraError);
