@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,6 +78,16 @@ describe('stdio connector', () => {
       (e: unknown) => e,
     );
     expect(err).toBeInstanceOf(InfraError);
+    expect(err).toMatchObject({ kind: 'server', retryable: false });
+  });
+
+  it('starts the fake server through a symlinked path', async () => {
+    const dir = await tmp();
+    const link = join(dir, 'linked-fake-server.mjs');
+    await symlink(FAKE, link);
+    const conn = await stdioConnector({ ...stdioSpec, args: [link] }, { cwd: dir, vars: {} });
+    expect((await conn.callTool('echo', { text: 'via link' }, 5000)).text).toBe('via link');
+    await conn.close();
   });
 
   it('rejects url servers until M2', async () => {

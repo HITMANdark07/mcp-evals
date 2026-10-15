@@ -1,8 +1,8 @@
 // Fake MCP server for tests. Import buildFakeServer() for in-memory use,
 // or run `node fake-server.mjs` to serve over stdio (crash tool enabled).
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -34,6 +34,16 @@ export function buildFakeServer(cwd = process.cwd(), opts = {}) {
   return server;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+function isMain() {
+  if (!process.argv[1]) return false;
+  try {
+    // realpath both sides so launching through a symlink (or /var → /private/var on macOS) still matches.
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMain()) {
   await buildFakeServer(process.cwd(), { allowCrash: true }).connect(new StdioServerTransport());
 }

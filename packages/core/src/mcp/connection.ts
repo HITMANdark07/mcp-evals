@@ -81,7 +81,10 @@ export const stdioConnector: Connector = async (server, ctx) => {
     await client.connect(transport);
   } catch (e) {
     await transport.close().catch(() => {});
-    throw new InfraError('server', `failed to start ${server.command}: ${(e as Error).message}\n${stderr}`, true);
+    // A missing or non-executable command will not start on retry either.
+    const code = (e as NodeJS.ErrnoException).code;
+    const permanent = code === 'ENOENT' || code === 'EACCES';
+    throw new InfraError('server', `failed to start ${server.command}: ${(e as Error).message}\n${stderr}`, !permanent);
   }
   return wrap(client, () => stderr);
 };

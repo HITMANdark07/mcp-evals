@@ -87,4 +87,58 @@ describe('runCommand (end-to-end over stdio, mock model)', () => {
     expect(lines.filter((l) => l.startsWith('error: '))).toHaveLength(4);
     expect(existsSync(join(dir, 'r.json'))).toBe(false);
   });
+
+  it('exits 2 when filters leave nothing to run', async () => {
+    const { dir, suite, script } = await workspace();
+    const lines: string[] = [];
+    const base = { out: join(dir, 'r.json'), cacheDir: join(dir, 'c'), retries: 0, log: (l: string) => lines.push(l) };
+    expect((await runCommand({ ...base, suites: [suite], provider: 'mock', mockScript: script, models: [] })).exitCode).toBe(2);
+    expect(lines).toEqual([expect.stringMatching(/^error: no runs to execute/)]);
+    expect(existsSync(join(dir, 'r.json'))).toBe(false);
+  });
+
+  it('exits 2, before any run, when a later suite has a bad fixture', async () => {
+    const { dir, suite, script } = await workspace();
+    const second = join(dir, 'second.yaml');
+    await writeFile(
+      second,
+      (await readFile(suite, 'utf8')).replace('suite: e2e', 'suite: second\nfixture: { git: "/definitely/not/a/repo.git", ref: abc1234 }'),
+    );
+    const lines: string[] = [];
+    const res = await runCommand({
+      suites: [suite, second], provider: 'mock', mockScript: script, out: join(dir, 'r.json'), traces: join(dir, 't.jsonl'),
+      cacheDir: join(dir, 'c'), retries: 0, log: (l) => lines.push(l),
+    });
+    expect(res.exitCode).toBe(2);
+    expect(lines).toEqual([expect.stringMatching(/^error: failed to fetch fixture \/definitely\/not\/a\/repo\.git@abc1234/)]);
+    expect(existsSync(join(dir, 'r.json'))).toBe(false);
+    expect(existsSync(join(dir, 't.jsonl'))).toBe(false);
+  });
+
+  it('exits 2 naming the file for missing or invalid suite and mock-script files', async () => {
+    const { dir, suite, script } = await workspace();
+    const lines: string[] = [];
+    const base = { out: join(dir, 'r.json'), cacheDir: join(dir, 'c'), retries: 0, log: (l: string) => lines.push(l) };
+    const missingSuite = join(dir, 'missing.yaml');
+    const missingScript = join(dir, 'missing.json');
+    const badJson = join(dir, 'bad.json');
+    await writeFile(badJson, '{not json');
+    const badShape = join(dir, 'shape.json');
+    await writeFile(badShape, JSON.stringify({ entries: [{ match: 'X', steps: [] }] }));
+    const cases: [Parameters<typeof runCommand>[0], string][] = [
+      [{ ...base, suites: [missingSuite], provider: 'mock', mockScript: script }, missingSuite],
+      [{ ...base, suites: [suite], provider: 'mock', mockScript: missingScript }, missingScript],
+      [{ ...base, suites: [suite], provider: 'mock', mockScript: badJson }, badJson],
+      [{ ...base, suites: [suite], provider: 'mock', mockScript: badShape }, badShape],
+    ];
+    for (const [opts, path] of cases) {
+      lines.length = 0;
+      expect((await runCommand(opts)).exitCode).toBe(2);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/^error: /);
+      expect(lines[0]).toContain(path);
+      expect(lines[0]).not.toMatch(/\n\s+at /);
+    }
+    expect(existsSync(join(dir, 'r.json'))).toBe(false);
+  });
 });
