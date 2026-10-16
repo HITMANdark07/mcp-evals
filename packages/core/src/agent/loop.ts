@@ -1,4 +1,4 @@
-import { InfraError, ProviderError } from '../errors.js';
+import { InfraError, ProviderError, ToolTimeoutError } from '../errors.js';
 import type { ToolMapping } from '../tools/convert.js';
 import type { ChatMessage, ChatResponse, JsonObject, LoopEnd, McpConnection, ModelProvider, ToolCallResult, TraceEvent } from '../types.js';
 import { countTokens } from '../tokens.js';
@@ -119,7 +119,13 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
       try {
         result = await o.connection.callTool(tool, args, toolTimeout);
       } catch (e) {
-        if (e instanceof InfraError && (now() >= deadline || (capped && now() - t0 >= toolTimeout - 5))) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
+        if (e instanceof ToolTimeoutError) {
+          // Cut short by the run deadline: the run timed out. Otherwise the tool itself was too slow for the policy.
+          if (capped || now() >= deadline) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
+          events.push({ type: 'error', step: steps, t: t(), kind: 'tool_timeout', message: e.message });
+          return finish('tool_timeout', { failReason: `tool "${tool}" exceeded the ${configured}ms tool timeout` });
+        }
+        if (now() >= deadline) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
         const infra = e instanceof InfraError ? e : new InfraError('server', e instanceof Error ? e.message : String(e), false);
         events.push({ type: 'error', step: steps, t: t(), kind: infra.kind, message: infra.message });
         return finish('infra_error', { infraError: infra, failReason: infra.message });

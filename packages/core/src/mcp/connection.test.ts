@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { buildFakeServer } from '../../test/fixtures/fake-server.mjs';
-import { InfraError } from '../errors.js';
+import { InfraError, ToolTimeoutError } from '../errors.js';
 import type { ServerSpec } from '../types.js';
 import { contentToText, createInMemoryConnector, stdioConnector } from './connection.js';
 import { runSetup } from './setup.js';
@@ -36,11 +36,25 @@ describe('in-memory connector', () => {
     await conn.close();
   });
 
-  it('turns tool timeouts into non-retryable InfraErrors', async () => {
+  it('turns tool timeouts into ToolTimeoutError (a model fail, not infra)', async () => {
     const conn = await memory(stdioSpec, { cwd: await tmp(), vars: {} });
     const err = await conn.callTool('slow', { ms: 500 }, 50).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ToolTimeoutError);
+    expect(err).toMatchObject({ tool: 'slow', timeoutMs: 50 });
+    await conn.close();
+  });
+
+  it('treats unknown transport errors as non-retryable', async () => {
+    const conn = await memory(stdioSpec, { cwd: await tmp(), vars: {} });
+    await conn.close();
+    const err = await conn.callTool('echo', { text: 'x' }, 1000).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(InfraError);
-    expect(err).toMatchObject({ kind: 'server', retryable: false });
+    expect(err).toMatchObject({ kind: 'server', retryable: false, message: expect.stringMatching(/Not connected/) });
+  });
+
+  it('reports the MCP server version from initialize', async () => {
+    const conn = await memory(stdioSpec, { cwd: await tmp(), vars: {} });
+    expect(conn.serverVersion?.()).toBe('1.0.0');
     await conn.close();
   });
 });
@@ -53,6 +67,12 @@ describe('stdio connector', () => {
     expect((await conn.callTool('read_file', { path: 'note.txt' }, 5000)).text).toBe('from cwd');
     await conn.callTool('shout', { text: 'hello-stderr' }, 5000);
     await vi.waitFor(() => expect(conn.stderr()).toContain('hello-stderr'));
+    await conn.close();
+  });
+
+  it('reports the server version over stdio too', async () => {
+    const conn = await stdioConnector(stdioSpec, { cwd: await tmp(), vars: {} });
+    expect(conn.serverVersion?.()).toBe('1.0.0');
     await conn.close();
   });
 
