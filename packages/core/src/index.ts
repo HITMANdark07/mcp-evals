@@ -23,7 +23,7 @@ export {
 export { FixtureManager, snapshotDir, type Workspace, type FixtureManagerOptions } from './fixtures/manager.js';
 export { stdioConnector, createInMemoryConnector, contentToText } from './mcp/connection.js';
 export { runSetup, setupEnv } from './mcp/setup.js';
-export { runAgentLoop, SYSTEM_PROMPT, DEFAULT_TOOL_TIMEOUT_MS, type AgentLoopOptions, type AgentRunResult } from './agent/loop.js';
+export { runAgentLoop, SYSTEM_PROMPT, DEFAULT_TOOL_TIMEOUT_MS, DEFAULT_ABORT_GRACE_MS, type AgentLoopOptions, type AgentRunResult } from './agent/loop.js';
 export {
   runSuites,
   previewPlan,
@@ -32,6 +32,7 @@ export {
   type RunSuitesOptions,
   type RunSuitesOutput,
   type StopReason,
+  REPEATED_PROVIDER_ERROR_LIMIT,
 } from './runner/run.js';
 export { RunCache, identityOf, suiteHash, DEFAULT_RUNS_DIR, type RunIdentity, type RunManifest } from './runner/cache.js';
 export {

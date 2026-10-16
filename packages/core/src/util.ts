@@ -35,3 +35,10 @@ export function sha256Hex(data: string | Buffer): string {
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** Backoff before retrying a transient provider error (429/5xx/network/timeout): 2 s, 10 s, then 30 s. */
+export const PROVIDER_BACKOFF_MS: readonly number[] = [2_000, 10_000, 30_000];
+
+export function providerBackoffMs(attempt: number): number {
+  return PROVIDER_BACKOFF_MS[Math.min(Math.max(attempt, 1), PROVIDER_BACKOFF_MS.length) - 1]!;
+}

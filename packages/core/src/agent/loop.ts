@@ -1,4 +1,4 @@
-import { InfraError, OutOfCreditsError, ProviderError, ToolTimeoutError } from '../errors.js';
+import { CostUnknownError, InfraError, OutOfCreditsError, ProviderError, spentUsd, ToolTimeoutError } from '../errors.js';
 import type { ToolMapping } from '../tools/convert.js';
 import type { ChatMessage, ChatResponse, JsonObject, LoopEnd, McpConnection, ModelProvider, ToolCallResult, TraceEvent } from '../types.js';
 import { countTokens } from '../tokens.js';
@@ -9,6 +9,8 @@ export const SYSTEM_PROMPT =
   'When you are finished, reply with your final answer as plain text and do not call any more tools.';
 
 export const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+/** After the run deadline aborts a model call, how long to wait for the provider to report what that call cost. */
+export const DEFAULT_ABORT_GRACE_MS = 500;
 
 export interface AgentLoopOptions {
   provider: ModelProvider;
@@ -25,6 +27,8 @@ export interface AgentLoopOptions {
   toolTimeoutMs?: number;
   /** Called before each model call with this loop's spend so far; return true to stop. */
   shouldStop?: (loopCostUsd: number) => boolean;
+  /** See DEFAULT_ABORT_GRACE_MS. */
+  abortGraceMs?: number;
   now?: () => number;
 }
 
@@ -33,8 +37,10 @@ export interface AgentRunResult {
   finalAnswer: string | null;
   failReason?: string;
   infraError?: InfraError;
-  /** The provider reported 402: the whole run must stop. */
+  /** The provider reported 402 (or a 403 key limit): the whole run must stop. */
   outOfCredits?: boolean;
+  /** The spend of a model call could not be determined (the reason): the whole run must stop. */
+  costUnknown?: string;
   events: TraceEvent[];
   steps: number;
   costUsd: number;
@@ -77,22 +83,37 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
 
     steps++;
     const controller = new AbortController();
+    let call: Promise<ChatResponse>;
+    try {
+      call = o.provider.chat({
+        model: o.model,
+        ...(o.providerPin !== undefined ? { providerPin: o.providerPin } : {}),
+        messages,
+        tools: o.tools.defs,
+        temperature: o.temperature,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      call = Promise.reject(e);
+    }
     let res: ChatResponse;
     try {
-      res = await withTimeout(
-        o.provider.chat({
-          model: o.model,
-          ...(o.providerPin !== undefined ? { providerPin: o.providerPin } : {}),
-          messages,
-          tools: o.tools.defs,
-          temperature: o.temperature,
-          signal: controller.signal,
-        }),
-        remaining,
-        controller,
-      );
-    } catch (e) {
-      if (e instanceof LoopTimeout) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
+      res = await withTimeout(call, remaining, controller);
+    } catch (caught) {
+      let e: unknown = caught;
+      if (e instanceof LoopTimeout) {
+        // The deadline aborted the call. It may still be billed: give the provider a moment to report its spend.
+        const settled = await settle(call, o.abortGraceMs ?? DEFAULT_ABORT_GRACE_MS);
+        if (settled.ok) costUsd += settled.value.usage.costUsd;
+        else if (settled.error instanceof CostUnknownError) e = settled.error;
+        else costUsd += spentUsd(settled.error);
+        if (!(e instanceof CostUnknownError)) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
+      }
+      costUsd += spentUsd(e);
+      if (e instanceof CostUnknownError) {
+        events.push({ type: 'error', step: steps, t: t(), kind: 'cost_unknown', message: e.message });
+        return finish('budget', { failReason: e.message, costUnknown: e.reason });
+      }
       if (e instanceof OutOfCreditsError) return finish('budget', { failReason: e.message, outOfCredits: true });
       const message = e instanceof Error ? e.message : String(e);
       // Only known-transient provider failures are retried; unknown exceptions are likely bugs and would repeat.
@@ -114,7 +135,12 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
       return finish('final_answer', { finalAnswer: text });
     }
 
-    messages.push({ role: 'assistant', content: res.content, toolCalls: res.toolCalls });
+    messages.push({
+      role: 'assistant',
+      content: res.content,
+      toolCalls: res.toolCalls,
+      ...(res.providerMetadata !== undefined ? { providerMetadata: res.providerMetadata } : {}),
+    });
     for (const call of res.toolCalls) {
       const tool = o.tools.toMcpName(call.name);
       const args = parseArgs(call.arguments);
@@ -161,6 +187,21 @@ function parseArgs(raw: string): JsonObject | null {
     return isPlainObject(v) ? v : null;
   } catch {
     return null;
+  }
+}
+
+type Settled<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
+/** How `p` settles within `ms` (a promise still pending then counts as an error with no spend). */
+async function settle<T>(p: Promise<T>, ms: number): Promise<Settled<T>> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<Settled<T>>((resolve) => {
+    timer = setTimeout(() => resolve({ ok: false, error: undefined }), ms);
+  });
+  try {
+    return await Promise.race([p.then((value): Settled<T> => ({ ok: true, value }), (error: unknown): Settled<T> => ({ ok: false, error })), late]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

@@ -104,7 +104,7 @@ export interface ToolDef {
 export type ChatMessage =
   | { role: 'system'; content: string }
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string | null; toolCalls?: ToolCall[] }
+  | { role: 'assistant'; content: string | null; toolCalls?: ToolCall[]; providerMetadata?: unknown }
   | { role: 'tool'; toolCallId: string; content: string };
 
 export interface ChatRequest {
@@ -130,6 +130,11 @@ export interface ChatResponse {
   latencyMs: number;
   /** Provider that actually served the call, when the API reports it. */
   servedBy?: string;
+  /**
+   * Opaque provider data that must travel back with this assistant message on later turns
+   * (OpenRouter: `reasoning` / `reasoning_details`). Never interpreted, traced or graded.
+   */
+  providerMetadata?: unknown;
 }
 
 export interface ModelProvider {

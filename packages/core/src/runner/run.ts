@@ -1,12 +1,12 @@
 import { realpath } from 'node:fs/promises';
 import { runAgentLoop, type AgentRunResult } from '../agent/loop.js';
-import { ConfigError, InfraError, OutOfCreditsError } from '../errors.js';
+import { ConfigError, CostUnknownError, InfraError, OutOfCreditsError, spentUsd } from '../errors.js';
 import { snapshotDir, type FixtureManager, type Workspace } from '../fixtures/manager.js';
 import { describeFailures, gradersCostUsd, runGraders, taskPassed, toolSelectionOk } from '../graders.js';
 import { runSetup, setupEnv } from '../mcp/setup.js';
 import { convertTools } from '../tools/convert.js';
 import type { Connector, GraderResult, McpConnection, ModelProvider, Outcome, PlannedCell, RunRecord, Suite, TaskSpec } from '../types.js';
-import { runKey, sleep as realSleep, substituteVars } from '../util.js';
+import { providerBackoffMs, runKey, sleep as realSleep, substituteVars } from '../util.js';
 
 export interface PlanOptions {
   suites: Suite[];
@@ -31,7 +31,10 @@ export interface RunSuitesOptions extends PlanOptions {
   now?: () => Date;
 }
 
-export type StopReason = 'budget' | 'out_of_credits';
+export type StopReason = 'budget' | 'out_of_credits' | 'cost_unknown' | 'repeated_provider_error';
+
+/** This many consecutive error records with the same provider failReason, for one model, stop the run. */
+export const REPEATED_PROVIDER_ERROR_LIMIT = 3;
 
 export interface RunSuitesOutput {
   /** Records produced by this invocation (not the skipped ones). */
@@ -40,6 +43,8 @@ export interface RunSuitesOutput {
   planned: PlannedCell[];
   partial: boolean;
   stopReason: StopReason | null;
+  /** What stopped the run: the provider message, the cost-unknown reason, or "<model>: <failReason>". */
+  stopDetail?: string;
   totalCostUsd: number;
   startedAt: string;
   finishedAt: string;
@@ -80,6 +85,9 @@ export async function runSuites(o: RunSuitesOptions): Promise<RunSuitesOutput> {
   const records: RunRecord[] = [];
   let spent = 0;
   let stopReason: StopReason | null = null;
+  let stopDetail: string | undefined;
+  /** Per model: the last provider error failReason and how many records in a row had it. */
+  const streaks = new Map<string, { reason: string; count: number }>();
 
   for (const target of todo) {
     if (spent >= budget) {
@@ -88,19 +96,35 @@ export async function runSuites(o: RunSuitesOptions): Promise<RunSuitesOutput> {
     }
     const out = await runOne(o, target, (c) => spent + c >= budget);
     spent += out.costUsd;
-    // A budget or out-of-credits cut-off is not a run outcome: no record, but its spend still counts.
+    // A budget, out-of-credits or unknown-cost cut-off is not a run outcome: no record, but its spend still counts.
     if (!out.record) {
       stopReason = out.stop ?? 'budget';
+      stopDetail = out.stopDetail;
       break;
     }
     records.push(out.record);
     await o.onRecord?.(out.record);
+    // The same provider error over and over (a bad request, a model the pin cannot serve) would only burn the plan.
+    const r = out.record;
+    if (r.outcome === 'error' && r.failReason?.startsWith('provider:')) {
+      const prev = streaks.get(r.model);
+      const count = prev && prev.reason === r.failReason ? prev.count + 1 : 1;
+      streaks.set(r.model, { reason: r.failReason, count });
+      if (count >= REPEATED_PROVIDER_ERROR_LIMIT) {
+        stopReason = 'repeated_provider_error';
+        stopDetail = `${r.model}: ${r.failReason}`;
+        break;
+      }
+    } else {
+      streaks.delete(r.model);
+    }
   }
   return {
     records,
     planned: countPlanned(plan),
     partial: stopReason !== null,
     stopReason,
+    ...(stopDetail !== undefined ? { stopDetail } : {}),
     totalCostUsd: spent,
     startedAt,
     finishedAt: now().toISOString(),
@@ -175,10 +199,11 @@ function validateFilters(o: PlanOptions): void {
 }
 
 interface RunOneResult {
-  /** Undefined when the run was cut off (budget or out of credits). */
+  /** Undefined when the run was cut off (budget, out of credits, or unknown cost). */
   record?: RunRecord;
   costUsd: number;
   stop?: StopReason;
+  stopDetail?: string;
 }
 
 async function runOne(o: RunSuitesOptions, target: RunTarget, overBudget: (runCostUsd: number) => boolean): Promise<RunOneResult> {
@@ -240,7 +265,11 @@ async function runOne(o: RunSuitesOptions, target: RunTarget, overBudget: (runCo
       costUsd += result.costUsd;
       stderr = conn.stderr();
       if (result.end === 'infra_error' && result.infraError) throw result.infraError;
-      if (result.end === 'budget') return { costUsd, stop: result.outOfCredits ? 'out_of_credits' : 'budget' };
+      if (result.end === 'budget') {
+        if (result.costUnknown !== undefined) return { costUsd, stop: 'cost_unknown', stopDetail: result.costUnknown };
+        if (result.outOfCredits) return { costUsd, stop: 'out_of_credits', ...(result.failReason ? { stopDetail: result.failReason } : {}) };
+        return { costUsd, stop: 'budget' };
+      }
       const graders = await runGraders(task.graders, {
         server: serverName,
         finalAnswer: result.finalAnswer,
@@ -261,14 +290,18 @@ async function runOne(o: RunSuitesOptions, target: RunTarget, overBudget: (runCo
       } catch {
         // ignore
       }
-      // 402 (agent or judge): stop the whole run. Spend so far counts; there is no record, as for a budget cut-off.
-      if (e instanceof OutOfCreditsError) return { costUsd, stop: 'out_of_credits' };
+      // Spend the failed work still incurred (e.g. failed judge attempts); errors from the agent loop carry none.
+      costUsd += spentUsd(e);
+      // 402 / key limit or unknown cost (judge): stop the whole run. Spend so far counts; no record, as for a budget cut-off.
+      if (e instanceof OutOfCreditsError) return { costUsd, stop: 'out_of_credits', stopDetail: e.message };
+      if (e instanceof CostUnknownError) return { costUsd, stop: 'cost_unknown', stopDetail: e.reason };
       if (!(e instanceof InfraError)) {
         const reason = `unexpected: ${e instanceof Error ? e.message : String(e)}`;
         return { record: makeRecord(target, 'error', result, [], reason, stderr, attempts, costUsd, serverVersion), costUsd };
       }
       if (e.retryable && attempts <= retries) {
-        backoffMs = 500 * 2 ** (attempts - 1);
+        // Provider trouble (rate limits, outages) needs longer to clear than a server that failed to start.
+        backoffMs = e.kind === 'provider' ? providerBackoffMs(attempts) : 500 * 2 ** (attempts - 1);
       } else {
         return { record: makeRecord(target, 'error', result, [], `${e.kind}: ${e.message}`, stderr, attempts, costUsd, serverVersion), costUsd };
       }

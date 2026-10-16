@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { InfraError, OutOfCreditsError, ProviderError } from '../errors.js';
+import { CostUnknownError, InfraError, OutOfCreditsError, ProviderError } from '../errors.js';
 import type { ChatRequest, ChatResponse, ModelProvider } from '../types.js';
 import { JUDGE_SYSTEM_PROMPT, runJudge } from './judge.js';
 
@@ -58,7 +58,7 @@ describe('runJudge', () => {
     const sleep = vi.fn(async () => {});
     const flaky = scripted([new ProviderError('429', true, 429), '{"pass": true, "reason": "ok"}']);
     expect(await runJudge({ provider: flaky.provider, model: 'j', sleep }, input)).toMatchObject({ pass: true });
-    expect(sleep).toHaveBeenCalledWith(500);
+    expect(sleep).toHaveBeenCalledWith(2000);
 
     const down = scripted([new ProviderError('503', true, 503), new ProviderError('503', true, 503), new ProviderError('503', true, 503)]);
     const err = await runJudge({ provider: down.provider, model: 'j', sleep, retries: 2 }, input).catch((e: unknown) => e);
@@ -84,5 +84,31 @@ describe('runJudge', () => {
     const bug = new Error('bug');
     const b = scripted([bug]);
     await expect(runJudge({ provider: b.provider, model: 'j' }, input)).rejects.toBe(bug);
+  });
+
+  it('backs off 2 s, 10 s, 30 s between retries of transient provider errors', async () => {
+    const sleep = vi.fn(async () => {});
+    const down = scripted([new ProviderError('503', true, 503), new ProviderError('503', true, 503), new ProviderError('503', true, 503), '{"pass": true, "reason": "ok"}']);
+    expect(await runJudge({ provider: down.provider, model: 'j', sleep }, input)).toMatchObject({ pass: true });
+    expect(sleep.mock.calls.map((c) => (c as unknown[])[0])).toEqual([2000, 10000, 30000]);
+  });
+
+  it('counts the spend of failed attempts: in the verdict cost, or on the InfraError when it gives up', async () => {
+    const sleep = vi.fn(async () => {});
+    const flaky = scripted([new ProviderError('502 body', true, 502, 0.01), '{"pass": true, "reason": "ok"}'], 0.001);
+    expect((await runJudge({ provider: flaky.provider, model: 'j', sleep }, input)).costUsd).toBeCloseTo(0.011, 12);
+    const down = scripted([new ProviderError('502 body', true, 502, 0.01), new ProviderError('400', false, 400, 0.002)]);
+    const err = await runJudge({ provider: down.provider, model: 'j', sleep }, input).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InfraError);
+    expect((err as InfraError).costUsd).toBeCloseTo(0.012, 12);
+  });
+
+  it('rethrows CostUnknownError (with the spend so far) so the runner can stop the whole run', async () => {
+    const sleep = vi.fn(async () => {});
+    const s = scripted([new ProviderError('502 body', true, 502, 0.01), new CostUnknownError('usage.cost missing and no catalog price for j')]);
+    const err = await runJudge({ provider: s.provider, model: 'j', sleep }, input).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CostUnknownError);
+    expect(err).toMatchObject({ reason: 'usage.cost missing and no catalog price for j' });
+    expect((err as CostUnknownError).costUsd).toBeCloseTo(0.01, 12);
   });
 });

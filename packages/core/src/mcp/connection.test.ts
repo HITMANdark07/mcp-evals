@@ -8,7 +8,7 @@ import { buildFakeServer } from '../../test/fixtures/fake-server.mjs';
 import { InfraError, ToolTimeoutError } from '../errors.js';
 import type { ServerSpec } from '../types.js';
 import { contentToText, createInMemoryConnector, stdioConnector } from './connection.js';
-import { runSetup } from './setup.js';
+import { runSetup, setupEnv } from './setup.js';
 
 const FAKE = fileURLToPath(new URL('../../test/fixtures/fake-server.mjs', import.meta.url));
 const stdioSpec: ServerSpec = { command: process.execPath, args: [FAKE], env: {}, headers: {} };
@@ -130,9 +130,9 @@ describe('contentToText', () => {
 describe('runSetup', () => {
   it('runs in cwd and throws InfraError on failure', async () => {
     const cwd = await tmp();
-    await runSetup('echo hi > setup.txt', cwd);
+    await runSetup('echo hi > setup.txt', cwd, setupEnv({}, {}));
     expect(existsSync(join(cwd, 'setup.txt'))).toBe(true);
-    const err = await runSetup('exit 3', cwd).catch((e: unknown) => e);
+    const err = await runSetup('exit 3', cwd, setupEnv({}, {})).catch((e: unknown) => e);
     expect(err).toMatchObject({ kind: 'setup', retryable: false });
   });
 });

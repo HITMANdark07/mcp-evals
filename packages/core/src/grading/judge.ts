@@ -1,6 +1,6 @@
-import { InfraError, OutOfCreditsError, ProviderError } from '../errors.js';
+import { CostUnknownError, InfraError, OutOfCreditsError, ProviderError, spentUsd } from '../errors.js';
 import type { ChatResponse, ModelProvider } from '../types.js';
-import { isPlainObject, sleep as realSleep } from '../util.js';
+import { isPlainObject, providerBackoffMs, sleep as realSleep } from '../util.js';
 import { extractJson } from './json-schema.js';
 
 export const JUDGE_SYSTEM_PROMPT =
@@ -53,6 +53,8 @@ export function judgePrompt(i: JudgeInput): string {
 export async function runJudge(cfg: JudgeConfig, input: JudgeInput): Promise<JudgeVerdict> {
   const retries = cfg.retries ?? 3;
   const sleep = cfg.sleep ?? realSleep;
+  /** Spend of failed attempts (error bodies that reported usage.cost); it belongs to this run's cost. */
+  let failedUsd = 0;
   for (let attempt = 1; ; attempt++) {
     let res: ChatResponse;
     try {
@@ -67,16 +69,19 @@ export async function runJudge(cfg: JudgeConfig, input: JudgeInput): Promise<Jud
         temperature: 0,
       });
     } catch (e) {
-      if (e instanceof OutOfCreditsError) throw e;
+      failedUsd += spentUsd(e);
+      // Stops the whole run; the runner counts the spend carried here.
+      if (e instanceof OutOfCreditsError) throw new OutOfCreditsError(e.message, failedUsd);
+      if (e instanceof CostUnknownError) throw new CostUnknownError(e.reason, failedUsd);
       if (!(e instanceof ProviderError)) throw e;
       if (e.retryable && attempt <= retries) {
-        await sleep(500 * 2 ** (attempt - 1));
+        await sleep(providerBackoffMs(attempt));
         continue;
       }
       // Not retryable by the runner either: re-running the agent would pay for it twice.
-      throw new InfraError('provider', `judge ${cfg.model}: ${e.message}`, false);
+      throw new InfraError('provider', `judge ${cfg.model}: ${e.message}`, false, failedUsd);
     }
-    return { ...parseVerdict(res.content ?? '', input.passThreshold), costUsd: res.usage.costUsd };
+    return { ...parseVerdict(res.content ?? '', input.passThreshold), costUsd: res.usage.costUsd + failedUsd };
   }
 }
 

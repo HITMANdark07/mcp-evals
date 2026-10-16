@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { buildFakeServer } from '../../test/fixtures/fake-server.mjs';
-import { ConfigError, InfraError, OutOfCreditsError, ProviderError } from '../errors.js';
+import { ConfigError, CostUnknownError, InfraError, OutOfCreditsError, ProviderError } from '../errors.js';
 import { FixtureManager } from '../fixtures/manager.js';
 import { createInMemoryConnector } from '../mcp/connection.js';
 import { MockProvider, parseMockScript, type MockScript } from '../providers/mock.js';
@@ -105,7 +105,7 @@ describe('runSuites', () => {
     const sleep = vi.fn(async () => {});
     const out = await runSuites(await opts({ provider: flaky, sleep, models: ['mock/a'], repeats: 1 }));
     expect(out.records[0]).toMatchObject({ outcome: 'pass', attempts: 2 });
-    expect(sleep).toHaveBeenCalledWith(500);
+    expect(sleep).toHaveBeenCalledWith(2000);
   });
 
   it('records error (not fail) after retries are exhausted or for non-retryable errors', async () => {
@@ -115,6 +115,7 @@ describe('runSuites', () => {
     expect(out.records.every((r) => r.outcome === 'error')).toBe(true);
     expect(out.records[0]!.attempts).toBe(3);
     expect(sleep).toHaveBeenCalledTimes(4);
+    expect(sleep.mock.calls.map((c) => (c as unknown[])[0])).toEqual([2000, 10000, 2000, 10000]);
 
     const fatal: ModelProvider = { name: 'fatal', chat: () => Promise.reject(new ProviderError('401', false, 401)) };
     const out2 = await runSuites(await opts({ provider: fatal, models: ['mock/a'], repeats: 1 }));
@@ -547,5 +548,124 @@ tasks:
   it('rejects an invalid budget before running anything', async () => {
     await expect(runSuites(await opts({ budgetUsd: Number.NaN }))).rejects.toThrow(/budgetUsd/);
     await expect(runSuites(await opts({ budgetUsd: -1 }))).rejects.toThrow(/budgetUsd/);
+  });
+
+  it('keeps the shorter backoff for server and setup retries', async () => {
+    let starts = 0;
+    const flaky: Connector = async (server, ctx) => {
+      if (starts++ < 2) throw new InfraError('server', 'failed to start', true);
+      return memory(server, ctx);
+    };
+    const sleep = vi.fn(async () => {});
+    const out = await runSuites(await opts({ connector: flaky, sleep, models: ['mock/a'], repeats: 1, tasks: ['echo'] }));
+    expect(out.records[0]).toMatchObject({ outcome: 'pass', attempts: 3 });
+    expect(sleep.mock.calls.map((c) => (c as unknown[])[0])).toEqual([500, 1000]);
+  });
+
+  it('stops the whole run (resumable, no record) when the agent call cost cannot be determined', async () => {
+    let calls = 0;
+    const inner = new MockProvider(SCRIPT);
+    const provider: ModelProvider = {
+      name: 'cost-unknown',
+      chat: (req) => (++calls === 3 ? Promise.reject(new CostUnknownError('usage.cost missing and no catalog price for mock/b')) : inner.chat(req)),
+    };
+    const out = await runSuites(await opts({ provider }));
+    expect(out).toMatchObject({ partial: true, stopReason: 'cost_unknown', stopDetail: 'usage.cost missing and no catalog price for mock/b' });
+    expect(calls).toBe(3);
+    expect(out.records).toHaveLength(1);
+    expect(out.totalCostUsd).toBeCloseTo(0.002, 9);
+  });
+
+  it('stops the whole run when the judge call cost cannot be determined, counting the agent spend', async () => {
+    const suite = parseSuite(
+      `
+suite: judged
+version: 1
+servers:
+  fake: { command: unused }
+models: [mock/a]
+judge: { id: mock/judge, provider: acme }
+defaults: { repeats: 2 }
+tasks:
+  - id: echo
+    prompt: "ECHO judged"
+    graders: [{ type: llm_judge, rubric: "Says hello." }]
+`,
+      'judged.yaml',
+    );
+    const inner = new MockProvider(SCRIPT);
+    const provider: ModelProvider = {
+      name: 'judge-unknown',
+      chat: (req) => (req.model === 'mock/judge' ? Promise.reject(new CostUnknownError('usage.cost missing and token counts missing for mock/judge', 0.0003)) : inner.chat(req)),
+    };
+    const out = await runSuites({ ...(await opts()), suites: [suite], provider });
+    expect(out).toMatchObject({ records: [], partial: true, stopReason: 'cost_unknown', stopDetail: 'usage.cost missing and token counts missing for mock/judge' });
+    expect(out.totalCostUsd).toBeCloseTo(0.0023, 9);
+  });
+
+  it('accumulates the spend of failed attempts (aborted or error-body calls) across retries', async () => {
+    let calls = 0;
+    const inner = new MockProvider(SCRIPT);
+    const provider: ModelProvider = {
+      name: 'timeout-once',
+      chat: (req) => (calls++ === 0 ? Promise.reject(new ProviderError('OpenRouter request timed out after 120000ms', true, undefined, 0.005)) : inner.chat(req)),
+    };
+    const out = await runSuites(await opts({ provider, models: ['mock/a'], repeats: 1, tasks: ['echo'] }));
+    expect(out.records[0]).toMatchObject({ outcome: 'pass', attempts: 2 });
+    expect(out.records[0]!.costUsd).toBeCloseTo(0.007, 12);
+    expect(out.totalCostUsd).toBeCloseTo(0.007, 12);
+  });
+
+  it('counts the spend of failed judge attempts on the error record', async () => {
+    const suite = parseSuite(
+      `
+suite: judged
+version: 1
+servers:
+  fake: { command: unused }
+models: [mock/a]
+judge: { id: mock/judge, provider: acme }
+defaults: { repeats: 1 }
+tasks:
+  - id: echo
+    prompt: "ECHO judged"
+    graders: [{ type: llm_judge, rubric: "Says hello." }]
+`,
+      'judged.yaml',
+    );
+    const inner = new MockProvider(SCRIPT);
+    const provider: ModelProvider = {
+      name: 'judge-err-body',
+      chat: (req) => (req.model === 'mock/judge' ? Promise.reject(new ProviderError('OpenRouter 400: bad', false, 400, 0.003)) : inner.chat(req)),
+    };
+    const out = await runSuites({ ...(await opts()), suites: [suite], provider });
+    expect(out.records[0]).toMatchObject({ outcome: 'error' });
+    expect(out.records[0]!.costUsd).toBeCloseTo(0.005, 12);
+    expect(out.totalCostUsd).toBeCloseTo(0.005, 12);
+  });
+
+  it('stops the run when one model produces 3 consecutive identical provider errors', async () => {
+    const inner = new MockProvider(SCRIPT);
+    const provider: ModelProvider = {
+      name: 'model-a-broken',
+      chat: (req) => (req.model === 'mock/a' ? Promise.reject(new ProviderError('OpenRouter 400: tools not supported', false, 400)) : inner.chat(req)),
+    };
+    const out = await runSuites(await opts({ provider, repeats: 3 }));
+    expect(out).toMatchObject({ partial: true, stopReason: 'repeated_provider_error' });
+    expect(out.stopDetail).toBe('mock/a: provider: OpenRouter 400: tools not supported');
+    // a-echo, b-echo, a-write, b-write, a-echo (#1): the third identical error for mock/a ends the run.
+    expect(out.records.map((r) => `${r.model}/${r.outcome}`)).toEqual(['mock/a/error', 'mock/b/fail', 'mock/a/error', 'mock/b/pass', 'mock/a/error']);
+  });
+
+  it('does not stop for provider errors that differ, or that another outcome interrupts', async () => {
+    let n = 0;
+    const inner = new MockProvider(SCRIPT);
+    const provider: ModelProvider = {
+      name: 'varied',
+      chat: (req) => (req.model === 'mock/a' ? Promise.reject(new ProviderError(`OpenRouter 400: error ${n++}`, false, 400)) : inner.chat(req)),
+    };
+    const out = await runSuites(await opts({ provider, repeats: 3 }));
+    expect(out).toMatchObject({ partial: false, stopReason: null });
+    expect(out.records).toHaveLength(12);
   });
 });

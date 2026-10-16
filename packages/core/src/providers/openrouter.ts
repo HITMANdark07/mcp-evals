@@ -1,4 +1,5 @@
-import { ConfigError, OutOfCreditsError, ProviderError } from '../errors.js';
+import { ConfigError, CostUnknownError, OutOfCreditsError, ProviderError } from '../errors.js';
+import { countTokens } from '../tokens.js';
 import type { ChatMessage, ChatRequest, ChatResponse, JsonObject, ModelProvider, ToolCall } from '../types.js';
 import { isPlainObject } from '../util.js';
 
@@ -62,47 +63,81 @@ export class OpenRouterProvider implements ModelProvider {
       body.tools = req.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
     }
     const t0 = this.#now();
-    const json = await request(this.#endpoint, 'POST', '/chat/completions', body, req.signal);
+    let json: unknown;
+    try {
+      json = await request(this.#endpoint, 'POST', '/chat/completions', body, req.signal);
+    } catch (e) {
+      if (e instanceof AbortedAfterSend) throw this.#chargeAborted(e, req.model, body);
+      throw e;
+    }
     return this.#parseCompletion(json, req.model, this.#now() - t0);
+  }
+
+  /**
+   * A request aborted after it was sent may still be billed. Charge a conservative estimate: the request's
+   * prompt (messages + tools, o200k tokens) at the catalog prompt price. Without a price the spend is unknowable.
+   */
+  #chargeAborted(e: AbortedAfterSend, model: string, body: JsonObject): Error {
+    const price = this.#prices[model];
+    const promptPrice = price ? validPrice(price.prompt) : null;
+    if (promptPrice === null) {
+      return new CostUnknownError(`request to ${model} was aborted after it was sent and no catalog price is known (${e.message})`);
+    }
+    const estimate = countTokens(JSON.stringify({ messages: body.messages, tools: body.tools })) * promptPrice;
+    return new ProviderError(e.message, e.retryable, e.status, estimate);
+  }
+
+  /** usage.cost, else catalog price × tokens; undefined when neither is available. */
+  #costOf(usage: JsonObject | undefined, model: string): number | undefined {
+    if (!usage) return undefined;
+    if (typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0) return usage.cost;
+    const price = this.#prices[model];
+    if (tokensKnown(usage) && price && validPrice(price.prompt) !== null && validPrice(price.completion) !== null) {
+      return (usage.prompt_tokens as number) * price.prompt + (usage.completion_tokens as number) * price.completion;
+    }
+    return undefined;
   }
 
   #parseCompletion(json: unknown, model: string, latencyMs: number): ChatResponse {
     if (!isPlainObject(json)) throw new ProviderError('OpenRouter: malformed response (not a JSON object)', false);
     const error = json.error;
     const choices = json.choices;
-    // A 200 can still carry an error: OpenRouter reports upstream failures in the body.
-    if (isPlainObject(error) && !Array.isArray(choices)) throw classify(numberOr(error.code, 502), messageOf(error));
+    const usageObj = isPlainObject(json.usage) ? json.usage : undefined;
+    // A 200 can still carry an error: OpenRouter reports upstream failures in the body. Any reported spend still counts.
+    if (isPlainObject(error) && !Array.isArray(choices)) {
+      throw classify(numberOr(error.code, 502), messageOf(error), this.#costOf(usageObj, model) ?? 0);
+    }
     const choice: unknown = Array.isArray(choices) ? choices[0] : undefined;
     if (!isPlainObject(choice)) throw new ProviderError('OpenRouter: malformed response (no choices[0].message)', false);
     const msg = choice.message;
     if (!isPlainObject(msg)) throw new ProviderError('OpenRouter: malformed response (no choices[0].message)', false);
     if (choice.finish_reason === 'error') {
-      throw new ProviderError(`OpenRouter: generation interrupted: ${isPlainObject(error) ? messageOf(error) : 'unknown error'}`, true, 502);
-    }
-    const rawCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
-    const usageObj = isPlainObject(json.usage) ? json.usage : undefined;
-    const usage = usageObj ?? {};
-    const promptTokens = numberOr(usage.prompt_tokens, 0);
-    const completionTokens = numberOr(usage.completion_tokens, 0);
-    const price = this.#prices[model];
-    const reportedCost = typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0 ? usage.cost : undefined;
-    let costUsd: number;
-    if (reportedCost !== undefined) costUsd = reportedCost;
-    else if (usageObj && tokensKnown(usageObj) && price && validPrice(price.prompt) !== null && validPrice(price.completion) !== null) {
-      costUsd = promptTokens * price.prompt + completionTokens * price.completion;
-    } else {
       throw new ProviderError(
-        `cannot determine cost for ${model}: response had no usage.cost and no catalog price is known; refusing to continue without budget accounting`,
-        false,
+        `OpenRouter: generation interrupted: ${isPlainObject(error) ? messageOf(error) : 'unknown error'}`,
+        true,
+        502,
+        this.#costOf(usageObj, model) ?? 0,
       );
     }
+    const rawCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+    const usage = usageObj ?? {};
+    const costUsd = this.#costOf(usageObj, model);
+    if (costUsd === undefined) {
+      const priced = this.#prices[model];
+      const hasPrice = priced !== undefined && validPrice(priced.prompt) !== null && validPrice(priced.completion) !== null;
+      throw new CostUnknownError(hasPrice ? `usage.cost missing and token counts missing for ${model}` : `usage.cost missing and no catalog price for ${model}`);
+    }
     const servedBy = json.provider;
+    const metadata: JsonObject = {};
+    if (msg.reasoning !== undefined && msg.reasoning !== null) metadata.reasoning = msg.reasoning;
+    if (msg.reasoning_details !== undefined && msg.reasoning_details !== null) metadata.reasoning_details = msg.reasoning_details;
     return {
       content: typeof msg.content === 'string' ? msg.content : null,
       toolCalls: rawCalls.map((c: unknown) => this.#toolCall(c)),
-      usage: { promptTokens, completionTokens, costUsd },
+      usage: { promptTokens: numberOr(usage.prompt_tokens, 0), completionTokens: numberOr(usage.completion_tokens, 0), costUsd },
       latencyMs,
       ...(typeof servedBy === 'string' ? { servedBy } : {}),
+      ...(Object.keys(metadata).length > 0 ? { providerMetadata: metadata } : {}),
     };
   }
 
@@ -150,6 +185,9 @@ function endpoint(o: { apiKey: string; baseUrl?: string; requestTimeoutMs?: numb
   };
 }
 
+/** A request cut off (run abort or request timeout) after it was sent; the provider may still bill it. */
+class AbortedAfterSend extends ProviderError {}
+
 async function request(ep: Endpoint, method: 'GET' | 'POST', path: string, body: JsonObject | undefined, signal?: AbortSignal): Promise<unknown> {
   const redact = (s: string) => s.split(ep.apiKey).join('[redacted]');
   const controller = new AbortController();
@@ -159,7 +197,8 @@ async function request(ep: Endpoint, method: 'GET' | 'POST', path: string, body:
     controller.abort();
   }, ep.requestTimeoutMs);
   const forwardAbort = () => controller.abort();
-  if (signal?.aborted) controller.abort();
+  const abortedBeforeSend = signal?.aborted === true;
+  if (abortedBeforeSend) controller.abort();
   else signal?.addEventListener('abort', forwardAbort, { once: true });
   let status: number;
   let text: string;
@@ -173,8 +212,9 @@ async function request(ep: Endpoint, method: 'GET' | 'POST', path: string, body:
     status = res.status;
     text = await res.text();
   } catch (e) {
-    if (timedOut) throw new ProviderError(`OpenRouter request timed out after ${ep.requestTimeoutMs}ms`, true);
-    if (signal?.aborted) throw new ProviderError('OpenRouter request aborted', false);
+    if (timedOut) throw new AbortedAfterSend(`OpenRouter request timed out after ${ep.requestTimeoutMs}ms`, true);
+    if (abortedBeforeSend) throw new ProviderError('OpenRouter request aborted before it was sent', false);
+    if (signal?.aborted) throw new AbortedAfterSend('OpenRouter request aborted', false);
     throw new ProviderError(redact(`OpenRouter network error: ${describe(e)}`), true);
   } finally {
     clearTimeout(timer);
@@ -190,8 +230,9 @@ async function request(ep: Endpoint, method: 'GET' | 'POST', path: string, body:
   if (status < 200 || status >= 300) {
     const err = isPlainObject(json) ? json.error : undefined;
     const message = isPlainObject(err) ? messageOf(err) : redact(text).slice(0, 300) || '(empty body)';
-    const classified = classify(status, redact(message));
-    throw classified;
+    const usage = isPlainObject(json) && isPlainObject(json.usage) ? json.usage : undefined;
+    const cost = usage && typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost > 0 ? usage.cost : 0;
+    throw classify(status, redact(message), cost);
   }
   if (!parsed) throw new ProviderError(`OpenRouter: malformed response JSON (HTTP ${status})`, false);
   if (isPlainObject(json) && isPlainObject(json.error)) {
@@ -201,11 +242,13 @@ async function request(ep: Endpoint, method: 'GET' | 'POST', path: string, body:
   return json;
 }
 
-function classify(status: number, message: string): Error {
+function classify(status: number, message: string, costUsd = 0): Error {
   const text = `OpenRouter ${status}: ${message}`;
-  if (status === 402) return new OutOfCreditsError(text);
-  if (status === 408 || status === 429 || status >= 500) return new ProviderError(text, true, status);
-  return new ProviderError(text, false, status);
+  if (status === 402) return new OutOfCreditsError(text, costUsd);
+  // OpenRouter answers 403 when the key's own spend limit is reached: as final as running out of credits.
+  if (status === 403 && /limit/i.test(message) && /key|credit/i.test(message)) return new OutOfCreditsError(text, costUsd);
+  if (status === 408 || status === 429 || status >= 500) return new ProviderError(text, true, status, costUsd);
+  return new ProviderError(text, false, status, costUsd);
 }
 
 function messageOf(err: JsonObject): string {
@@ -244,6 +287,10 @@ function toWireMessage(m: ChatMessage): JsonObject {
         content: m.content,
         ...(m.toolCalls && m.toolCalls.length > 0
           ? { tool_calls: m.toolCalls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })) }
+          : {}),
+        // Reasoning models (Anthropic, Gemini) need their reasoning blocks back, unchanged, to continue a tool-call turn.
+        ...(isPlainObject(m.providerMetadata) && m.providerMetadata.reasoning_details !== undefined
+          ? { reasoning_details: m.providerMetadata.reasoning_details }
           : {}),
       };
     case 'tool':
