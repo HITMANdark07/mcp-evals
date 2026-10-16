@@ -5,11 +5,17 @@ import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { InfraError } from '../errors.js';
 import type { FixtureSpec } from '../types.js';
 import { sha256Hex } from '../util.js';
 
 const execFileP = promisify(execFile);
+
+/** git runs with the MCP SDK's minimal environment (never the API key) and can never stop to ask for credentials. */
+function gitEnv(): Record<string, string> {
+  return { ...getDefaultEnvironment(), GIT_TERMINAL_PROMPT: '0' };
+}
 
 export interface Workspace {
   dir: string;
@@ -54,8 +60,8 @@ export class FixtureManager {
     // Build in a temp sibling and rename into place, so `dir` is never half-prepared.
     const tmp = `${dir}.tmp-${randomBytes(6).toString('hex')}`;
     try {
-      await execFileP('git', ['clone', '--quiet', '--no-checkout', spec.git, tmp]);
-      await execFileP('git', ['-C', tmp, 'checkout', '--quiet', '--detach', spec.ref]);
+      await execFileP('git', ['clone', '--quiet', '--no-checkout', spec.git, tmp], { env: gitEnv() });
+      await execFileP('git', ['-C', tmp, 'checkout', '--quiet', '--detach', spec.ref], { env: gitEnv() });
       await rm(dir, { recursive: true, force: true });
       await rename(tmp, dir);
     } catch (e) {
@@ -81,7 +87,7 @@ export class FixtureManager {
 async function isCheckedOutAt(dir: string, ref: string): Promise<boolean> {
   if (!existsSync(join(dir, '.git'))) return false;
   try {
-    const { stdout } = await execFileP('git', ['-C', dir, 'rev-parse', 'HEAD']);
+    const { stdout } = await execFileP('git', ['-C', dir, 'rev-parse', 'HEAD'], { env: gitEnv() });
     return stdout.trim().startsWith(ref);
   } catch {
     return false;

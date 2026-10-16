@@ -1,7 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import { ConfigError } from '../errors.js';
 import type { FixtureManager, Workspace } from '../fixtures/manager.js';
-import { runSetup } from '../mcp/setup.js';
+import { runSetup, setupEnv } from '../mcp/setup.js';
 import type { CatalogModel, ModelPrice } from '../providers/openrouter.js';
 import type { Results } from '../results/schema.js';
 import type { Connector, McpConnection, PlannedCell, Suite } from '../types.js';
@@ -30,7 +30,7 @@ export async function checkServers(o: { suites: Suite[]; servers?: string[]; con
         ws = await o.fixtures.createWorkspace(suite.fixture);
         const dir = await realpath(ws.dir);
         const vars = { fixture: dir };
-        if (server.setup) await runSetup(substituteVars(server.setup, vars), dir);
+        if (server.setup) await runSetup(substituteVars(server.setup, vars), dir, setupEnv(server.env, vars));
         conn = await o.connector(server, { cwd: dir, vars });
         const tools = await conn.listTools();
         checks.push({ suite: suite.name, server: name, tools: tools.length, version: conn.serverVersion?.() ?? null });

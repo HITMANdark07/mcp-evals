@@ -3,7 +3,7 @@ import { runAgentLoop, type AgentRunResult } from '../agent/loop.js';
 import { ConfigError, InfraError, OutOfCreditsError } from '../errors.js';
 import { snapshotDir, type FixtureManager, type Workspace } from '../fixtures/manager.js';
 import { describeFailures, gradersCostUsd, runGraders, taskPassed, toolSelectionOk } from '../graders.js';
-import { runSetup } from '../mcp/setup.js';
+import { runSetup, setupEnv } from '../mcp/setup.js';
 import { convertTools } from '../tools/convert.js';
 import type { Connector, GraderResult, McpConnection, ModelProvider, Outcome, PlannedCell, RunRecord, Suite, TaskSpec } from '../types.js';
 import { runKey, sleep as realSleep, substituteVars } from '../util.js';
@@ -203,7 +203,7 @@ async function runOne(o: RunSuitesOptions, target: RunTarget, overBudget: (runCo
       // The real path (macOS tmp is /var → /private/var), so the prompt and the server args name the same directory.
       const fixtureDir = await realpath(ws.dir);
       const vars = { fixture: fixtureDir };
-      if (server.setup) await runSetup(substituteVars(server.setup, vars), fixtureDir);
+      if (server.setup) await runSetup(substituteVars(server.setup, vars), fixtureDir, setupEnv(server.env, vars));
       conn = await o.connector(server, { cwd: fixtureDir, vars });
       serverVersion = conn.serverVersion?.();
       let listed: Awaited<ReturnType<McpConnection['listTools']>>;

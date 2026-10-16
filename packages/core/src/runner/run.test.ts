@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { access, mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -260,6 +260,23 @@ tasks:
     const bad = parseSuite(SUITE.replace('setup: "echo prepared > setup.txt"', 'setup: "exit 7"'), 'bad.yaml');
     const out = await runSuites({ ...o, suites: [bad] });
     expect(out.records.every((r) => r.outcome === 'error' && r.attempts === 1)).toBe(true);
+  });
+
+  it('runs server setup without the API key in its environment', async () => {
+    const saved = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = 'sk-or-planted-runner-0123456789';
+    try {
+      const outDir = await mkdtemp(join(tmpdir(), 'runner-env-'));
+      const envFile = join(outDir, 'env.txt');
+      const suite = parseSuite(SUITE.replace('setup: "echo prepared > setup.txt"', `setup: "env > ${envFile}"`), 'env.yaml');
+      await runSuites({ ...(await opts({ models: ['mock/a'], repeats: 1, tasks: ['echo'] })), suites: [suite] });
+      const env = await readFile(envFile, 'utf8');
+      expect(env).not.toContain('sk-or-planted-runner');
+      expect(env).toMatch(/^PATH=/m);
+    } finally {
+      if (saved === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = saved;
+    }
   });
 
   it('still disposes the workspace when conn.close() rejects', async () => {

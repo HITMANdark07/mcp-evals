@@ -22,7 +22,7 @@ export {
 } from './providers/openrouter.js';
 export { FixtureManager, snapshotDir, type Workspace, type FixtureManagerOptions } from './fixtures/manager.js';
 export { stdioConnector, createInMemoryConnector, contentToText } from './mcp/connection.js';
-export { runSetup } from './mcp/setup.js';
+export { runSetup, setupEnv } from './mcp/setup.js';
 export { runAgentLoop, SYSTEM_PROMPT, DEFAULT_TOOL_TIMEOUT_MS, type AgentLoopOptions, type AgentRunResult } from './agent/loop.js';
 export {
   runSuites,

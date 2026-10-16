@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -48,6 +48,24 @@ describe('checkServers', () => {
     await expect(checkServers({ suites: [suite], servers: ['other'], connector: memory, fixtures: await fixtures() })).rejects.toThrow(
       /server "other".*setup command failed/s,
     );
+  });
+});
+
+describe('checkServers setup environment', () => {
+  it('runs setup without the API key in its environment', async () => {
+    const saved = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = 'sk-or-planted-preflight-0123456789';
+    try {
+      const envFile = join(await mkdtemp(join(tmpdir(), 'preflight-env-')), 'env.txt');
+      const s = parseSuite(SUITE.replace('setup: "exit 3"', `setup: "env > ${envFile}"`), 'env.yaml');
+      await checkServers({ suites: [s], servers: ['other'], connector: memory, fixtures: await fixtures() });
+      const env = await readFile(envFile, 'utf8');
+      expect(env).not.toContain('sk-or-planted-preflight');
+      expect(env).toMatch(/^PATH=/m);
+    } finally {
+      if (saved === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = saved;
+    }
   });
 });
 
