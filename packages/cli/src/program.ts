@@ -1,5 +1,6 @@
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 import { compareCommand, type CompareCommandOptions } from './commands/compare.js';
+import { publishCommand, type PublishCommandOptions } from './commands/publish.js';
 import { reportCommand, type ReportCommandOptions } from './commands/report.js';
 import { runCommand, type RunCommandOptions } from './commands/run.js';
 import { CLI_VERSION } from './version.js';
@@ -8,6 +9,7 @@ export interface ProgramDeps {
   run: (o: RunCommandOptions) => Promise<{ exitCode: number }>;
   compare: (o: CompareCommandOptions) => Promise<{ exitCode: number }>;
   report: (o: ReportCommandOptions) => Promise<{ exitCode: number }>;
+  publish: (o: PublishCommandOptions) => Promise<{ exitCode: number }>;
   writeOut: (s: string) => void;
   writeErr: (s: string) => void;
 }
@@ -16,6 +18,7 @@ const defaultDeps: ProgramDeps = {
   run: runCommand,
   compare: compareCommand,
   report: reportCommand,
+  publish: publishCommand,
   writeOut: (s) => process.stdout.write(s),
   writeErr: (s) => process.stderr.write(s),
 };
@@ -99,6 +102,18 @@ export async function main(argv: string[], deps: ProgramDeps = defaultDeps): Pro
     .addOption(new Option('--format <format>', 'output format').choices(['table', 'markdown']).default('table'))
     .action(async (results: string, opts: Omit<ReportCommandOptions, 'results' | 'log'>) => {
       exitCode = (await deps.report({ results, ...opts })).exitCode;
+    });
+
+  program
+    .command('publish')
+    .description('Copy a finished run into data/ (data/runs/<runId>/…, optionally data/latest.json)')
+    .argument('<results>', 'results.json of the run')
+    .requiredOption('--traces <path>', 'traces.jsonl written by the same run')
+    .option('--data-dir <path>', 'data directory', 'data')
+    .option('--latest', 'also write data/latest.json')
+    .option('--allow-partial', 'publish results that have partial: true')
+    .action(async (results: string, opts: Omit<PublishCommandOptions, 'results' | 'log'>) => {
+      exitCode = (await deps.publish({ results, ...opts })).exitCode;
     });
 
   try {
