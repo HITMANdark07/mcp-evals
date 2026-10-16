@@ -1,4 +1,4 @@
-import { InfraError, ProviderError, ToolTimeoutError } from '../errors.js';
+import { InfraError, OutOfCreditsError, ProviderError, ToolTimeoutError } from '../errors.js';
 import type { ToolMapping } from '../tools/convert.js';
 import type { ChatMessage, ChatResponse, JsonObject, LoopEnd, McpConnection, ModelProvider, ToolCallResult, TraceEvent } from '../types.js';
 import { countTokens } from '../tokens.js';
@@ -15,6 +15,8 @@ export interface AgentLoopOptions {
   connection: McpConnection;
   tools: ToolMapping;
   model: string;
+  /** OpenRouter provider slug for this model (suite pin). */
+  providerPin?: string;
   prompt: string;
   maxSteps: number;
   timeoutMs: number;
@@ -31,6 +33,8 @@ export interface AgentRunResult {
   finalAnswer: string | null;
   failReason?: string;
   infraError?: InfraError;
+  /** The provider reported 402: the whole run must stop. */
+  outOfCredits?: boolean;
   events: TraceEvent[];
   steps: number;
   costUsd: number;
@@ -76,12 +80,20 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
     let res: ChatResponse;
     try {
       res = await withTimeout(
-        o.provider.chat({ model: o.model, messages, tools: o.tools.defs, temperature: o.temperature, signal: controller.signal }),
+        o.provider.chat({
+          model: o.model,
+          ...(o.providerPin !== undefined ? { providerPin: o.providerPin } : {}),
+          messages,
+          tools: o.tools.defs,
+          temperature: o.temperature,
+          signal: controller.signal,
+        }),
         remaining,
         controller,
       );
     } catch (e) {
       if (e instanceof LoopTimeout) return finish('timeout', { failReason: `timed out after ${o.timeoutMs}ms` });
+      if (e instanceof OutOfCreditsError) return finish('budget', { failReason: e.message, outOfCredits: true });
       const message = e instanceof Error ? e.message : String(e);
       // Only known-transient provider failures are retried; unknown exceptions are likely bugs and would repeat.
       const retryable = e instanceof ProviderError ? e.retryable : false;
@@ -93,6 +105,7 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
     events.push({
       type: 'model_call', step: steps, t: t(), latencyMs: res.latencyMs,
       promptTokens: res.usage.promptTokens, completionTokens: res.usage.completionTokens, costUsd: res.usage.costUsd,
+      ...(res.servedBy !== undefined ? { servedBy: res.servedBy } : {}),
     });
 
     if (res.toolCalls.length === 0) {

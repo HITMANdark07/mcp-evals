@@ -6,8 +6,8 @@ import { buildFakeServer } from '../../test/fixtures/fake-server.mjs';
 import { createInMemoryConnector } from '../mcp/connection.js';
 import { MockProvider, parseMockScript } from '../providers/mock.js';
 import { convertTools } from '../tools/convert.js';
-import { InfraError } from '../errors.js';
-import type { ModelProvider } from '../types.js';
+import { InfraError, OutOfCreditsError } from '../errors.js';
+import type { ChatRequest, ModelProvider } from '../types.js';
 import { countTokens } from '../tokens.js';
 import { runAgentLoop, type AgentLoopOptions } from './loop.js';
 
@@ -164,5 +164,28 @@ describe('runAgentLoop', () => {
       timeoutMs: 100,
     });
     expect((await runAgentLoop(opts)).end).toBe('timeout');
+  });
+
+  it('passes the provider pin and records who served each call', async () => {
+    const { opts } = await setup([{ content: 'unused' }]);
+    const seen: ChatRequest[] = [];
+    const served: ModelProvider = {
+      name: 'served',
+      chat: async (req) => {
+        seen.push(req);
+        return { content: 'done', toolCalls: [], usage: { promptTokens: 9, completionTokens: 1, costUsd: 0.001 }, latencyMs: 1, servedBy: 'Acme' };
+      },
+    };
+    const r = await runAgentLoop({ ...opts, provider: served, providerPin: 'acme' });
+    expect(seen[0]!.providerPin).toBe('acme');
+    expect(r.events[0]).toMatchObject({ type: 'model_call', servedBy: 'Acme' });
+  });
+
+  it('ends like a budget stop, flagged outOfCredits, on OutOfCreditsError', async () => {
+    const { opts } = await setup([{ content: 'unused' }]);
+    const broke: ModelProvider = { name: 'broke', chat: () => Promise.reject(new OutOfCreditsError('OpenRouter 402: no credits')) };
+    const r = await runAgentLoop({ ...opts, provider: broke });
+    expect(r).toMatchObject({ end: 'budget', outOfCredits: true, failReason: 'OpenRouter 402: no credits' });
+    expect(r.infraError).toBeUndefined();
   });
 });
