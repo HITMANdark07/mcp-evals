@@ -57,7 +57,10 @@ export const ResultsSchema = z.object({
           /** passes / runs: errors count as failures. null when the cell has no runs (or in older files). */
           successRateWithErrors: z.number().min(0).max(1).nullable().default(null),
           successCi95: z.tuple([z.number(), z.number()]),
+          /** Share of completed runs whose tool graders passed; null when no completed run has tool graders. */
           toolAccuracy: z.number().min(0).max(1).nullable(),
+          /** Share of completed (pass/fail) runs that ended in an invalid tool call (unknown tool, or arguments that are not valid JSON); null when none completed (or in older files). */
+          invalidToolCallRate: z.number().min(0).max(1).nullable().default(null),
           /** Headline: o200k_base tokens returned by tool calls, per run. */
           contextTokensPerTask: Stat,
           /** Secondary: provider-reported prompt tokens summed over the run's model calls; null when upgraded from v1. */

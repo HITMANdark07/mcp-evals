@@ -99,10 +99,12 @@ describe('pass rules', () => {
     expect(taskPassed([r({ pass: false })], 'final_answer')).toBe(false);
   });
   it('toolSelectionOk', () => {
-    expect(toolSelectionOk([], 'final_answer')).toBeNull();
-    expect(toolSelectionOk([], 'invalid_tool_call')).toBe(false);
-    expect(toolSelectionOk([r({ pass: true })], 'final_answer')).toBe(true);
-    expect(toolSelectionOk([r({ pass: false })], 'final_answer')).toBe(false);
+    // Only tool graders count; an unknown-tool call is reported as invalidToolCallRate instead.
+    expect(toolSelectionOk([])).toBeNull();
+    expect(toolSelectionOk([r({ type: 'answer_matches', pass: false })])).toBeNull();
+    expect(toolSelectionOk([r({ pass: false, skipped: true })])).toBeNull();
+    expect(toolSelectionOk([r({ pass: true })])).toBe(true);
+    expect(toolSelectionOk([r({ pass: true }), r({ type: 'tool_args_match', pass: false })])).toBe(false);
   });
   it('describeFailures lists failing decisive graders', () => {
     expect(describeFailures([r({ pass: false, detail: 'echo not called' }), r({ pass: false, budget: true })])).toBe(

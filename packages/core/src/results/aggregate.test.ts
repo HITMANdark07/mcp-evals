@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PlannedCell, RunRecord, Suite, TraceEvent } from '../types.js';
+import type { GraderResult, PlannedCell, RunRecord, Suite, TraceEvent } from '../types.js';
 import { aggregate, type AggregateInput } from './aggregate.js';
 import { ResultsSchema } from './schema.js';
 import { wilson } from './wilson.js';
@@ -48,6 +48,8 @@ function rec(over: Partial<RunRecord> = {}, events: TraceEvent[] = []): RunRecor
   return { ...base, toolSelectionOk: null, trace: { ...base, events, serverStderr: '' }, ...over };
 }
 
+const toolGrader = (pass: boolean): GraderResult => ({ type: 'tool_called', pass, skipped: false, budget: false, detail: '' });
+
 const call = (promptTokens: number): TraceEvent => ({
   type: 'model_call', step: 1, t: 0, latencyMs: 1, promptTokens, completionTokens: 1, costUsd: 0,
 });
@@ -62,8 +64,8 @@ const meta: Omit<AggregateInput, 'records' | 'suites' | 'planned'> = {
 describe('aggregate', () => {
   it('builds v2 cells with success, CI, tool accuracy, stats, errors, completeness, and tasks', () => {
     const records = [
-      rec({ task: 't1', repeat: 1, runKey: 'r-t1-1', toolSelectionOk: true, contextTokens: 100, steps: 2 }),
-      rec({ task: 't1', repeat: 0, runKey: 'r-t1-0', toolSelectionOk: false, contextTokens: 300, steps: 4, outcome: 'fail', end: 'max_steps' }),
+      rec({ task: 't1', repeat: 1, runKey: 'r-t1-1', graders: [toolGrader(true)], contextTokens: 100, steps: 2 }),
+      rec({ task: 't1', repeat: 0, runKey: 'r-t1-0', graders: [toolGrader(false)], contextTokens: 300, steps: 4, outcome: 'fail', end: 'max_steps' }),
       rec({ task: 't2', repeat: 0, runKey: 'r-t2-0', contextTokens: 200, steps: 3 }),
       rec({ task: 't2', repeat: 1, runKey: 'r-t2-1', outcome: 'error', end: 'infra_error', contextTokens: 9999 }),
       rec({ model: 'm/b', task: 't1' }),
@@ -83,6 +85,7 @@ describe('aggregate', () => {
     expect(a.successCi95).toEqual(expect.arrayContaining([expect.any(Number), expect.any(Number)]));
     expect(a.errorRate).toBe(0.25);
     expect(a.toolAccuracy).toBe(0.5);
+    expect(a.invalidToolCallRate).toBe(0);
     expect(a.contextTokensPerTask).toEqual({ mean: 200, median: 200 });
     expect(a.providerPromptTokensPerTask).toEqual({ mean: 0, median: 0 });
     expect(a.stepsPerTask).toBe(3);
@@ -93,6 +96,18 @@ describe('aggregate', () => {
     expect(cells[1]).toMatchObject({ runs: 1, plannedRuns: 2, complete: false, toolAccuracy: null });
   });
 
+  it('reports unknown-tool calls as invalidToolCallRate, not tool accuracy, recomputing stale cached records', () => {
+    const records = [
+      // Cached before the fix: toolSelectionOk was stored as false for an unknown-tool call without tool graders.
+      rec({ task: 't1', outcome: 'fail', end: 'invalid_tool_call', toolSelectionOk: false }),
+      rec({ task: 't2', outcome: 'pass', end: 'final_answer' }),
+      rec({ task: 't2', repeat: 1, outcome: 'error', end: 'infra_error' }),
+    ];
+    const c = aggregate({ records, suites: [suite], planned: [plan('fake', 'm/a', 3)], ...meta }).suites[0]!.cells[0]!;
+    expect(c.toolAccuracy).toBeNull();
+    expect(c.invalidToolCallRate).toBe(0.5);
+  });
+
   it('reports null success with CI [0,1] when every run errored', () => {
     const results = aggregate({ records: [rec({ outcome: 'error', end: 'infra_error' })], suites: [suite], planned: [plan('fake', 'm/a', 1)], ...meta });
     expect(() => ResultsSchema.parse(results)).not.toThrow();
@@ -100,6 +115,7 @@ describe('aggregate', () => {
     expect(c.successRate).toBeNull();
     expect(c.successCi95).toEqual([0, 1]);
     expect(c.errorRate).toBe(1);
+    expect(c.invalidToolCallRate).toBeNull();
     expect(c.complete).toBe(true);
   });
 

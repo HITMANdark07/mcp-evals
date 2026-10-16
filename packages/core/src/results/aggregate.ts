@@ -1,3 +1,4 @@
+import { toolSelectionOk } from '../graders.js';
 import type { PlannedCell, RunRecord, Suite } from '../types.js';
 import { mean, median } from '../util.js';
 import type { Results } from './schema.js';
@@ -78,7 +79,8 @@ function buildCell(suite: Suite, server: string, model: string, rs: RunRecord[],
   const completed = rs.filter((r) => r.outcome !== 'error');
   const passes = completed.filter((r) => r.outcome === 'pass').length;
   const n = completed.length;
-  const toolVals = completed.map((r) => r.toolSelectionOk).filter((v): v is boolean => v !== null);
+  // Recomputed from the graders (not the stored toolSelectionOk), so results rebuilt from cached records use the current rule.
+  const toolVals = completed.map((r) => toolSelectionOk(r.graders)).filter((v): v is boolean => v !== null);
   const ctx = completed.map((r) => r.contextTokens);
   const prompt = completed.map(providerPromptTokens);
   const tasks: Cell['tasks'] = [];
@@ -103,6 +105,7 @@ function buildCell(suite: Suite, server: string, model: string, rs: RunRecord[],
     successRateWithErrors: rs.length === 0 ? null : passes / rs.length,
     successCi95: wilson(passes, n),
     toolAccuracy: toolVals.length === 0 ? null : toolVals.filter(Boolean).length / toolVals.length,
+    invalidToolCallRate: n === 0 ? null : completed.filter((r) => r.end === 'invalid_tool_call').length / n,
     contextTokensPerTask: { mean: mean(ctx), median: median(ctx) },
     providerPromptTokensPerTask: { mean: mean(prompt), median: median(prompt) },
     stepsPerTask: mean(completed.map((r) => r.steps)),
