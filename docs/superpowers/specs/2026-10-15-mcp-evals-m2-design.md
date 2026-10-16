@@ -31,7 +31,7 @@ Produce the first real, reproducible results: a credible head-to-head of **NeatC
 - `POST https://openrouter.ai/api/v1/chat/completions` with `{ model, messages, tools, temperature, provider: { order: [slug], allow_fallbacks: false } }`. Messages/tools use the OpenAI chat format (assistant `tool_calls[{id, type:'function', function:{name, arguments}}]`, tool results `{role:'tool', tool_call_id, content}`).
 - Pins come from the suite (§4.1). A model without a pin is a config error.
 - Reads `usage.prompt_tokens`, `usage.completion_tokens`, `usage.cost` (credits, treated as USD; documented), and the serving provider from the response when present.
-- API key only from `OPENROUTER_API_KEY`; never logged, traced, or written. Missing key → `ConfigError` before any work.
+- API key only from `OPENROUTER_API_KEY`; never logged, traced, or written. The CLI loads a `.env` file from the working directory at startup with Node's built-in `process.loadEnvFile()` (no dependency); variables already set in the environment win. `.env` is git-ignored and `.env.example` (committed) documents the variables. Missing key → `ConfigError` before any work, with a hint to copy `.env.example` to `.env`.
 - Errors: HTTP 429/5xx, network errors, and request timeouts → `ProviderError(retryable: true)`; 400/401/403/404 → `ProviderError(retryable: false)`; **402 (insufficient credits) → a dedicated `OutOfCreditsError`** that stops the whole run (no new runs, results so far kept, `partial: true`). Malformed response JSON → `ProviderError(retryable: false)`.
 - Honors `ChatRequest.signal`.
 

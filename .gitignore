@@ -3,3 +3,8 @@ dist/
 coverage/
 .mcp-evals/
 *.tsbuildinfo
+
+# Local secrets (keep the example committed)
+.env
+.env.*
+!.env.example
