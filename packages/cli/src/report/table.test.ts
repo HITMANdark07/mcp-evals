@@ -3,17 +3,18 @@ import { describe, expect, it } from 'vitest';
 import { ci, formatTable, pct, usd } from './table.js';
 
 const results: Results = {
-  schemaVersion: 1, harnessVersion: '0.0.0', runId: 'run-1',
+  schemaVersion: 2, harnessVersion: '0.0.0', runId: 'run-1',
   startedAt: '2026-10-15T00:00:00.000Z', finishedAt: '2026-10-15T00:00:01.000Z', partial: true, totalCostUsd: 0.012,
   suites: [{
-    suite: 'demo', suiteVersion: 1, fixture: null, servers: { fake: { command: 'node' } }, models: [{ id: 'mock/a', provider: 'mock' }],
+    suite: 'demo', suiteVersion: 1, fixture: null, servers: { fake: { command: 'node', version: null } },
+    models: [{ id: 'mock/a', provider: 'mock' }], judge: null,
     cells: [{
-      server: 'fake', model: 'mock/a', runs: 4, successRate: 0.75, successCi95: [0.3006, 0.9544], toolAccuracy: null,
-      contextTokensPerTask: { mean: 10, median: 12.4 }, stepsPerTask: 2, latencyMsP50: 5, costUsdPerTask: 0.002, errorRate: 0,
+      server: 'fake', model: 'mock/a', runs: 4, plannedRuns: 4, complete: true, successRate: 0.75, successCi95: [0.3006, 0.9544], toolAccuracy: null,
+      contextTokensPerTask: { mean: 10, median: 12.4 }, providerPromptTokensPerTask: null, stepsPerTask: 2, latencyMsP50: 5, costUsdPerTask: 0.002, errorRate: 0,
       tasks: [],
     }, {
-      server: 'fake', model: 'mock/b', runs: 2, successRate: null, successCi95: [0, 1], toolAccuracy: null,
-      contextTokensPerTask: { mean: 0, median: 0 }, stepsPerTask: 0, latencyMsP50: 0, costUsdPerTask: 0, errorRate: 1,
+      server: 'fake', model: 'mock/b', runs: 2, plannedRuns: 2, complete: true, successRate: null, successCi95: [0, 1], toolAccuracy: null,
+      contextTokensPerTask: { mean: 0, median: 0 }, providerPromptTokensPerTask: null, stepsPerTask: 0, latencyMsP50: 0, costUsdPerTask: 0, errorRate: 1,
       tasks: [],
     }],
   }],

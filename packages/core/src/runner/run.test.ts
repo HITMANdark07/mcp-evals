@@ -74,6 +74,10 @@ describe('runSuites', () => {
     expect(passed.trace).not.toHaveProperty('failReason');
     expect(passed.trace).toMatchObject({ outcome: 'pass', end: 'final_answer' });
     expect(out.partial).toBe(false);
+    expect(out.planned).toEqual([
+      { suite: 'demo', server: 'fake', model: 'mock/a', runs: 4 },
+      { suite: 'demo', server: 'fake', model: 'mock/b', runs: 4 },
+    ]);
     expect(out.totalCostUsd).toBeCloseTo(out.records.reduce((s, r) => s + r.costUsd, 0), 9);
   });
 

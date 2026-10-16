@@ -4,7 +4,7 @@ import { snapshotDir, type FixtureManager, type Workspace } from '../fixtures/ma
 import { describeFailures, runGraders, taskPassed, toolSelectionOk } from '../graders.js';
 import { runSetup } from '../mcp/setup.js';
 import { convertTools } from '../tools/convert.js';
-import type { Connector, GraderResult, McpConnection, ModelProvider, Outcome, RunRecord, Suite, TaskSpec } from '../types.js';
+import type { Connector, GraderResult, McpConnection, ModelProvider, Outcome, PlannedCell, RunRecord, Suite, TaskSpec } from '../types.js';
 import { runKey, sleep as realSleep, substituteVars } from '../util.js';
 
 export interface RunSuitesOptions {
@@ -24,6 +24,8 @@ export interface RunSuitesOptions {
 
 export interface RunSuitesOutput {
   records: RunRecord[];
+  /** Runs per suite × server × model in the full plan, in plan order. */
+  planned: PlannedCell[];
   partial: boolean;
   totalCostUsd: number;
   startedAt: string;
@@ -69,10 +71,21 @@ export async function runSuites(o: RunSuitesOptions): Promise<RunSuitesOutput> {
     records.push(record);
     o.onRecord?.(record);
   }
-  return { records, partial, totalCostUsd: spent, startedAt, finishedAt: now().toISOString() };
+  return { records, planned: countPlanned(plan), partial, totalCostUsd: spent, startedAt, finishedAt: now().toISOString() };
 }
 
 /** Repeat-major order (repeat → suite → task → server → model), so a budget cut-off hits every cell evenly. */
+function countPlanned(plan: RunTarget[]): PlannedCell[] {
+  const cells = new Map<string, PlannedCell>();
+  for (const t of plan) {
+    const key = [t.suite.name, t.serverName, t.model].join('\u0000');
+    const cell = cells.get(key);
+    if (cell) cell.runs++;
+    else cells.set(key, { suite: t.suite.name, server: t.serverName, model: t.model, runs: 1 });
+  }
+  return [...cells.values()];
+}
+
 function planRuns(o: RunSuitesOptions): RunTarget[] {
   const suites = o.suites.map((suite) => ({
     suite,

@@ -60,6 +60,7 @@ export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: numb
       aggregate({
         records: run.records,
         suites,
+        planned: run.planned,
         providerName: provider.name,
         harnessVersion: CLI_VERSION,
         runId: `${run.startedAt.replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`,

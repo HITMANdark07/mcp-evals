@@ -110,7 +110,7 @@ interface Results {
     models: Array<{ id: string; provider: string }>;   // pinned OpenRouter id + routed provider
     cells: Array<{                                       // one per server × model
       server: string; model: string;
-      successRate: number; successCi95: [number, number];
+      successRate: number | null; successCi95: [number, number];   // null when the cell has no completed (pass/fail) runs
       toolAccuracy: number;
       contextTokensPerTask: { mean: number; median: number };
       stepsPerTask: number; latencyMsP50: number; costUsdPerTask: number;
@@ -121,7 +121,7 @@ interface Results {
 }
 ```
 
-A zod schema is the source of truth; a JSON Schema is exported for the leaderboard and portfolio.
+A zod schema is the source of truth; a JSON Schema is exported for the leaderboard and portfolio. **Schema v2 (M2)** sets `schemaVersion: 2` and adds, per cell, `plannedRuns`, `complete` (`runs === plannedRuns`) and `providerPromptTokensPerTask`; per suite, `servers.<name>.version` (MCP `serverInfo.version`) and `judge`; `toolAccuracy` is `number | null`. `readResults()` reads v1 files and upgrades them (new fields null/false). See `2026-10-15-mcp-evals-m2-design.md` §3.5.
 
 ### 4.2 Traces
 
