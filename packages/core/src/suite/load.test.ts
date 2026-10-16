@@ -170,6 +170,32 @@ describe('parseSuite', () => {
       /tasks\.t1\.prompt uses \{fixture\} but the suite has no fixture/,
     );
   });
+  it('parses answer_json_schema and llm_judge graders', () => {
+    const s = parseSuite(
+      yaml({
+        models: 'models: [mock/a]\njudge: { id: anthropic/claude-haiku-5.5, provider: anthropic }',
+        tasks: task(
+          [
+            '      - { type: answer_json_schema, schema: { type: object, required: [n], properties: { n: { type: integer } } } }',
+            '      - { type: llm_judge, rubric: "Explains it.", pass_threshold: 0.7 }',
+          ].join('\n'),
+        ),
+      }),
+    );
+    expect(s.tasks[0]!.graders).toEqual([
+      { type: 'answer_json_schema', schema: { type: 'object', required: ['n'], properties: { n: { type: 'integer' } } } },
+      { type: 'llm_judge', rubric: 'Explains it.', passThreshold: 0.7 },
+    ]);
+  });
+
+  it('rejects llm_judge without a suite judge, and unsupported JSON Schema keywords', () => {
+    expect(issuesOf(yaml({ tasks: task('      - { type: llm_judge, rubric: "x" }') }))).toMatch(
+      /tasks\.t1\.graders\[0\]: llm_judge needs a suite-level judge: block/,
+    );
+    expect(issuesOf(yaml({ tasks: task('      - { type: answer_json_schema, schema: { type: array, maxItems: 2 } }') }))).toMatch(
+      /tasks\.0\.graders\.0\.schema/,
+    );
+  });
 });
 
 describe('loadSuite', () => {
