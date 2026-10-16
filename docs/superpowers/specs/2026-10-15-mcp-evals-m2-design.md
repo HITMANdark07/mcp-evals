@@ -9,7 +9,7 @@
 
 Produce the first real, reproducible results: a credible head-to-head of **NeatCode vs. the filesystem MCP server** on identical code-navigation tasks, plus a general tool-use suite, across four models via OpenRouter — published as `results.json` (schema v2) with a methodology note. Results are reported as measured, whichever way they fall.
 
-**Success:** a committed real run within a $25 cap, `data/latest.json` validating against `ResultsSchema` v2, `docs/methodology.md`, and all tests offline and green.
+**Success:** a committed real run within the agreed cap ($10 for the first run), `data/latest.json` validating against `ResultsSchema` v2, `docs/methodology.md`, and all tests offline and green.
 
 **Out of scope:** GitHub Action and npm release (M3); leaderboard site (M4); git MCP server suite; providers other than OpenRouter.
 
@@ -23,7 +23,7 @@ Produce the first real, reproducible results: a credible head-to-head of **NeatC
 | Headline context metric | `gpt-tokenizer` `o200k_base`, identical for every model | Depends only on what the server returned → server-comparable; provider-reported prompt tokens kept as a secondary column |
 | HTTP client | Node `fetch`, no SDK | Small surface, full control of error classification |
 | Code-navigation fixture | `https://github.com/honojs/hono` v4.13.13 @ `08a023cbfde55b434fb0fb30fae35d42e4bf20aa` | Neutral, MIT, ~26k LOC TS; NeatCode indexes it in ~3 s |
-| Budget | `--budget-usd 25` for the full run; smoke run first | User-approved |
+| Budget | First real run: **$10 cap**, code-navigation suite only, 4 models, 2 repeats (~192 runs, est. $7–9); smoke run first and counted inside the $10. general-tools runs later. The OpenRouter key has a $20 limit (backstop) | User-approved 2026-10-16 |
 
 ## 3. Components
 
@@ -81,7 +81,7 @@ Plain-string model entries remain valid for the mock provider. Task prompts may 
 
 ## 5. Execution of the real run
 1. Smoke: `code-navigation`, 3 tasks, `qwen/qwen3.8-flash`, 1 repeat → measures mean cost per run.
-2. Full: both suites, all models, 3 repeats, `--budget-usd 25`. Pre-flight estimate must fit or the run asks first.
+2. Full (first real run): `code-navigation`, all 4 models, 2 repeats, `--budget-usd 10` (the smoke run's spend counts toward the $10). Pre-flight estimate must fit or the run asks first. At the cap: no new runs start, the in-flight run stops before its next model call (cost counted, no record), results are written with `partial: true` and incomplete cells `complete: false`; `--resume <runId> --budget-usd <n>` finishes the remaining runs later without re-paying completed ones. A 402 from OpenRouter behaves the same way. `general-tools` runs in a later session.
 3. Publish: `data/runs/<runId>/results.json`, `data/runs/<runId>/traces.jsonl.gz`, `data/latest.json` (copy of the full run's results), and `docs/methodology.md` (tokenizer, pinned models/providers, fairness rules, setup time excluded from latency, provider-reported tokens column, known limitations, date of catalog checks).
 
 The live run is never part of the test suite; it runs only with the user's key in their own shell.
