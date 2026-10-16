@@ -25,7 +25,7 @@ export interface RunManifest extends RunIdentity {
   runId: string;
   createdAt: string;
   harnessVersion: string;
-  /** Spend with no record: a run cut off by the budget cap or by out-of-credits. */
+  /** Spend with no record: a run cut off by a stop (budget, out of credits, unknown cost), or a retried error record that was replaced. */
   unrecordedSpendUsd: number;
 }
 
