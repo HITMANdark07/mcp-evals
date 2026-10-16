@@ -179,6 +179,20 @@ describe('OpenRouterProvider.chat', () => {
     expect((await priced.chat(req())).usage.costUsd).toBeCloseTo(0.000012, 12);
   });
 
+  it('requires both token counts for the priced fallback', async () => {
+    const f = await startFakeOpenRouter();
+    fake = f;
+    const priced = new OpenRouterProvider({ apiKey: KEY, baseUrl: f.baseUrl, prices: { 'acme/model-a': { prompt: 0.000001, completion: 0.000002 } } });
+    f.enqueue({ json: completion({ content: 'ok' }, {}) }, { json: completion({ content: 'ok' }, { prompt_tokens: 10 }) });
+    for (let i = 0; i < 2; i++) {
+      expect(await priced.chat(req()).catch((e: unknown) => e)).toMatchObject({
+        name: 'ProviderError',
+        retryable: false,
+        message: expect.stringMatching(/^cannot determine cost for acme\/model-a/),
+      });
+    }
+  });
+
   it('redacts the key before truncating long error bodies', async () => {
     const { fake, provider } = await setup();
     const message = 'x'.repeat(290) + KEY + 'y'.repeat(100);
@@ -236,11 +250,12 @@ describe('fetchModelCatalog', () => {
       models: [
         { id: 'a/n', pricing: { prompt: null, completion: '0.1' } },
         { id: 'a/e', pricing: { prompt: '', completion: '' } },
+        { id: 'a/ws', pricing: { prompt: '  ', completion: ' ' } },
         { id: 'a/neg', pricing: { prompt: '-1', completion: '-1' } },
       ],
     });
     const catalog = await fetchModelCatalog({ apiKey: KEY, baseUrl: fake.baseUrl });
-    for (const id of ['a/n', 'a/e', 'a/neg']) expect(catalog.get(id)?.price).toBeNull();
+    for (const id of ['a/n', 'a/e', 'a/ws', 'a/neg']) expect(catalog.get(id)?.price).toBeNull();
   });
 
   it('marks unparseable prices as null', async () => {

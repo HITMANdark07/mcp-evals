@@ -88,7 +88,7 @@ export class OpenRouterProvider implements ModelProvider {
     const reportedCost = typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0 ? usage.cost : undefined;
     let costUsd: number;
     if (reportedCost !== undefined) costUsd = reportedCost;
-    else if (usageObj && price && validPrice(price.prompt) !== null && validPrice(price.completion) !== null) {
+    else if (usageObj && tokensKnown(usageObj) && price && validPrice(price.prompt) !== null && validPrice(price.completion) !== null) {
       costUsd = promptTokens * price.prompt + completionTokens * price.completion;
     } else {
       throw new ProviderError(
@@ -214,9 +214,14 @@ function messageOf(err: JsonObject): string {
 
 /** A per-token price is valid only if it is a finite number >= 0 (null, "", non-numeric and negative mean "no price"). */
 function validPrice(v: unknown): number | null {
-  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
-  const n = typeof v === 'number' || typeof v === 'string' ? Number(v) : NaN;
+  if (typeof v === 'string' && v.trim() === '') return null;
+  if (v === null || v === undefined || typeof v === 'boolean') return null;
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v.trim()) : NaN;
   return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function tokensKnown(usage: JsonObject): boolean {
+  return [usage.prompt_tokens, usage.completion_tokens].every((t) => typeof t === 'number' && Number.isFinite(t) && t >= 0);
 }
 
 function numberOr(v: unknown, fallback: number): number {
