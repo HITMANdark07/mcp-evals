@@ -1,13 +1,13 @@
 import type { Results } from '@mcp-evals/core';
 import { ci, isIncomplete, pct, runsText, usd } from './table.js';
 
-const HEADER = '| Server | Model | Runs | Success | 95% CI | Tool acc. | Context tok. (median) | Provider prompt tok. (median) | Steps | $/task | Errors |';
+const HEADER = '| Server | Model | Runs | Success | Success w/ errors | 95% CI | Tool acc. | Context tok. (median) | Provider prompt tok. (median) | Steps | $/task | Errors |';
 
 export function formatMarkdown(r: Results): string {
   const out: string[] = [
     `## mcp-evals results — run \`${r.runId}\``,
     '',
-    `Harness ${r.harnessVersion} · ${r.startedAt} → ${r.finishedAt} · total cost ${usd(r.totalCostUsd)}${r.partial ? ' · **PARTIAL**' : ''}`,
+    `Harness ${r.harnessVersion}${r.harnessCommit ? ` (${r.harnessCommit})` : ''} · ${r.startedAt} → ${r.finishedAt} · total cost ${usd(r.totalCostUsd)}${r.partial ? ' · **PARTIAL**' : ''}`,
   ];
   for (const s of r.suites) {
     out.push('', `### ${s.suite} (v${s.suiteVersion})`, '');
@@ -22,6 +22,7 @@ export function formatMarkdown(r: Results): string {
         c.model,
         runsText(c),
         c.successRate === null ? '–' : pct(c.successRate),
+        c.successRateWithErrors === null ? '–' : pct(c.successRateWithErrors),
         ci(c.successCi95),
         c.toolAccuracy === null ? '–' : pct(c.toolAccuracy),
         String(Math.round(c.contextTokensPerTask.median)),

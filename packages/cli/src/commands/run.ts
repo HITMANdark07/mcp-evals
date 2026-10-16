@@ -28,7 +28,7 @@ import {
 } from '@mcp-evals/core';
 import { fsReason, writeFileAtomic } from '../files.js';
 import { formatTable, usd } from '../report/table.js';
-import { CLI_VERSION } from '../version.js';
+import { CLI_VERSION, harnessCommit } from '../version.js';
 import { openRouterPreflight } from './preflight.js';
 
 export interface RunCommandOptions {
@@ -158,6 +158,7 @@ export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: numb
         planned: run.planned,
         providerName: provider.name,
         harnessVersion: CLI_VERSION,
+        harnessCommit: harnessCommit(),
         runId,
         startedAt: runCache.manifest.createdAt,
         finishedAt: run.finishedAt,

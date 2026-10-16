@@ -76,13 +76,13 @@ const prices = new Map<string, ModelPrice | null>([
 ]);
 
 const measured: Results = {
-  schemaVersion: 2, harnessVersion: '0', runId: 'smoke', startedAt: 'a', finishedAt: 'b', partial: false, totalCostUsd: 0.012,
+  schemaVersion: 2, harnessVersion: '0', harnessCommit: null, runId: 'smoke', startedAt: 'a', finishedAt: 'b', partial: false, totalCostUsd: 0.012,
   suites: [{
     suite: 'demo', suiteVersion: 1, fixture: null, servers: {}, models: [], judge: null,
     cells: [
-      { server: 'fake', model: 'acme/b', runs: 3, plannedRuns: 3, complete: true, successRate: 1, successCi95: [0, 1], toolAccuracy: null,
+      { server: 'fake', model: 'acme/b', runs: 3, plannedRuns: 3, complete: true, successRate: 1, successRateWithErrors: 1, successCi95: [0, 1], toolAccuracy: null,
         contextTokensPerTask: { mean: 0, median: 0 }, providerPromptTokensPerTask: null, stepsPerTask: 1, latencyMsP50: 1, costUsdPerTask: 0.004, errorRate: 0, tasks: [] },
-      { server: 'other', model: 'acme/b', runs: 2, plannedRuns: 2, complete: true, successRate: null, successCi95: [0, 1], toolAccuracy: null,
+      { server: 'other', model: 'acme/b', runs: 2, plannedRuns: 2, complete: true, successRate: null, successRateWithErrors: 0, successCi95: [0, 1], toolAccuracy: null,
         contextTokensPerTask: { mean: 0, median: 0 }, providerPromptTokensPerTask: null, stepsPerTask: 0, latencyMsP50: 0, costUsdPerTask: 0, errorRate: 1, tasks: [] },
     ],
   }],

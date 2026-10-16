@@ -120,11 +120,40 @@ describe('aggregate', () => {
     ];
     const r = aggregate({ records, suites: [pinned], planned: [plan('fake', 'm/a', 3)], ...meta });
     const s = r.suites[0]!;
-    expect(s.models).toEqual([{ id: 'm/a', provider: 'acme' }, { id: 'm/b', provider: 'mock' }]);
+    // Only models the plan scheduled (m/b was filtered out).
+    expect(s.models).toEqual([{ id: 'm/a', provider: 'acme' }]);
     expect(s.judge).toEqual({ id: 'j/judge', provider: 'acme' });
-    expect(s.servers).toEqual({ fake: { command: 'node', version: '1.2.3' }, other: { command: 'node', version: null } });
+    expect(s.servers).toEqual({
+      fake: { command: 'node', args: [], setup: null, version: '1.2.3' },
+      other: { command: 'node', args: [], setup: null, version: null },
+    });
     // 100+300 and 1000; the error run is excluded like every other per-task stat.
     expect(s.cells[0]!.providerPromptTokensPerTask).toEqual({ mean: 700, median: 700 });
     expect(s.cells[0]!.complete).toBe(true);
+  });
+
+  it('reports successRateWithErrors = passes / runs (errors count as failures; null with no runs)', () => {
+    const records = [
+      rec({ repeat: 0 }),
+      rec({ repeat: 1, outcome: 'fail', end: 'max_steps' }),
+      rec({ repeat: 2, outcome: 'error', end: 'infra_error' }),
+      rec({ repeat: 3, outcome: 'error', end: 'infra_error' }),
+    ];
+    const r = aggregate({ records, suites: [suite], planned: [plan('fake', 'm/a', 4), plan('other', 'm/a', 2)], ...meta });
+    expect(() => ResultsSchema.parse(r)).not.toThrow();
+    const [a, empty] = r.suites[0]!.cells;
+    expect(a).toMatchObject({ successRate: 0.5, successRateWithErrors: 0.25, errorRate: 0.5 });
+    expect(empty).toMatchObject({ runs: 0, successRate: null, successRateWithErrors: null });
+  });
+
+  it('records provenance: harness commit, server args and setup', () => {
+    const withSetup: Suite = {
+      ...suite,
+      servers: { fake: { command: 'npx', args: ['-y', 'srv@1.0.0', '{fixture}'], env: {}, headers: {}, setup: 'npx -y srv-cli@1.0.0 init' } },
+    };
+    const r = aggregate({ records: [], suites: [withSetup], planned: [plan('fake', 'm/a', 1)], ...meta, harnessCommit: 'abc1234' });
+    expect(r.harnessCommit).toBe('abc1234');
+    expect(r.suites[0]!.servers.fake).toEqual({ command: 'npx', args: ['-y', 'srv@1.0.0', '{fixture}'], setup: 'npx -y srv-cli@1.0.0 init', version: null });
+    expect(aggregate({ records: [], suites: [suite], planned: [plan('fake', 'm/a', 1)], ...meta }).harnessCommit).toBeNull();
   });
 });

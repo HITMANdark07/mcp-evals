@@ -23,7 +23,9 @@ describe('readResults', () => {
     const r = readResults(copy(v1));
     expect(() => ResultsSchema.parse(r)).not.toThrow();
     expect(r.schemaVersion).toBe(2);
-    expect(r.suites[0]!.servers.fake).toEqual({ command: 'node', version: null });
+    expect(r.suites[0]!.servers.fake).toEqual({ command: 'node', args: null, setup: null, version: null });
+    expect(r.harnessCommit).toBeNull();
+    expect(r.suites[0]!.cells[0]!.successRateWithErrors).toBeNull();
     expect(r.suites[0]!.judge).toBeNull();
     expect(r.suites[0]!.cells[0]).toMatchObject({
       runs: 2, plannedRuns: null, complete: false, providerPromptTokensPerTask: null, successRate: 0.5,
@@ -40,5 +42,17 @@ describe('readResults', () => {
     expect(() => readResults({ schemaVersion: 3 })).toThrow(/unsupported results schemaVersion 3/);
     expect(() => readResults('nope')).toThrow(/unsupported results schemaVersion null/);
     expect(() => readResults({ ...copy(v1), runId: 42 })).toThrow(/invalid results: runId/);
+  });
+
+  it('accepts v2 files written before the provenance fields existed, filling them with null', () => {
+    const old = copy(readResults(copy(v1))) as Record<string, any>;
+    delete old.harnessCommit;
+    delete old.suites[0].cells[0].successRateWithErrors;
+    delete old.suites[0].servers.fake.args;
+    delete old.suites[0].servers.fake.setup;
+    const r = readResults(old);
+    expect(r.harnessCommit).toBeNull();
+    expect(r.suites[0]!.cells[0]!.successRateWithErrors).toBeNull();
+    expect(r.suites[0]!.servers.fake).toEqual({ command: 'node', args: null, setup: null, version: null });
   });
 });

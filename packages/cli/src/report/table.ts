@@ -14,7 +14,7 @@ export function alignColumns(rows: string[][]): string {
   return rows.map((cells) => cells.map((c, i) => c.padEnd(widths[i] ?? 0)).join('  ').trimEnd()).join('\n');
 }
 
-const HEADER = ['SUITE', 'SERVER', 'MODEL', 'RUNS', 'SUCCESS', '95% CI', 'TOOL ACC', 'CTX TOK (med)', 'STEPS', '$/TASK', 'ERRORS'];
+const HEADER = ['SUITE', 'SERVER', 'MODEL', 'RUNS', 'SUCCESS', 'SUCCESS w/ERR', '95% CI', 'TOOL ACC', 'CTX TOK (med)', 'STEPS', '$/TASK', 'ERRORS'];
 
 export function formatTable(results: Results): string {
   const rows = results.suites.flatMap((s) =>
@@ -24,6 +24,7 @@ export function formatTable(results: Results): string {
       c.model,
       runsText(c),
       c.successRate === null ? '–' : pct(c.successRate),
+      c.successRateWithErrors === null ? '–' : pct(c.successRateWithErrors),
       ci(c.successCi95),
       c.toolAccuracy === null ? '–' : pct(c.toolAccuracy),
       String(Math.round(c.contextTokensPerTask.median)),

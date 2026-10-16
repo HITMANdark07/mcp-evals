@@ -11,6 +11,8 @@ export interface AggregateInput {
   /** Provider label for models without a pin (e.g. "mock"). */
   providerName: string;
   harnessVersion: string;
+  /** Short git commit of the harness, when known. */
+  harnessCommit?: string | null;
   runId: string;
   startedAt: string;
   finishedAt: string;
@@ -24,6 +26,7 @@ export function aggregate(input: AggregateInput): Results {
   return {
     schemaVersion: 2,
     harnessVersion: input.harnessVersion,
+    harnessCommit: input.harnessCommit ?? null,
     runId: input.runId,
     startedAt: input.startedAt,
     finishedAt: input.finishedAt,
@@ -49,11 +52,16 @@ export function aggregate(input: AggregateInput): Results {
             {
               ...(s.command !== undefined ? { command: s.command } : {}),
               ...(s.url !== undefined ? { url: s.url } : {}),
+              args: s.args,
+              setup: s.setup ?? null,
               version: recs.find((r) => r.server === name && r.serverVersion !== undefined)?.serverVersion ?? null,
             },
           ]),
         ),
-        models: suite.models.map((id) => ({ id, provider: suite.modelPins[id] ?? input.providerName })),
+        // Only the models this run planned (or has records for), not every model the suite declares.
+        models: suite.models
+          .filter((id) => recs.some((r) => r.model === id) || input.planned.some((p) => p.suite === suite.name && p.model === id && p.runs > 0))
+          .map((id) => ({ id, provider: suite.modelPins[id] ?? input.providerName })),
         judge: suite.judge ? { id: suite.judge.id, provider: suite.judge.provider } : null,
         cells,
       };
@@ -92,6 +100,7 @@ function buildCell(suite: Suite, server: string, model: string, rs: RunRecord[],
     plannedRuns,
     complete: rs.length === plannedRuns,
     successRate: n === 0 ? null : passes / n,
+    successRateWithErrors: rs.length === 0 ? null : passes / rs.length,
     successCi95: wilson(passes, n),
     toolAccuracy: toolVals.length === 0 ? null : toolVals.filter(Boolean).length / toolVals.length,
     contextTokensPerTask: { mean: mean(ctx), median: median(ctx) },

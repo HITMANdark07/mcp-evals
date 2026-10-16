@@ -77,6 +77,9 @@ describe('runCommand (end-to-end over stdio, mock model)', () => {
     ]);
     expect(cell.errorRate).toBe(0.5);
     expect(written.suites[0]!.servers.fake!.version).toBe('1.0.0');
+    expect(written.suites[0]!.servers.fake!.args).toEqual([FAKE]);
+    expect(written).toMatchObject({ harnessVersion: '0.2.0', harnessCommit: expect.stringMatching(/^[0-9a-f]{7,}$/) });
+    expect(cell.successRateWithErrors).toBe(0.5);
     const traces = (await readFile(join(dir, 'traces.jsonl'), 'utf8')).trim().split('\n');
     expect(traces).toHaveLength(4);
     expect(JSON.parse(traces[0]!)).toMatchObject({ outcome: 'pass', end: 'final_answer', attempts: 1 });

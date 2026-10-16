@@ -14,6 +14,8 @@ const ModelInfo = z.object({ id: z.string(), provider: z.string() });
 export const ResultsSchema = z.object({
   schemaVersion: z.literal(2),
   harnessVersion: z.string(),
+  /** `git rev-parse --short HEAD` of the harness checkout at run time; null when unknown (npm install, or older v2 files). */
+  harnessCommit: z.string().nullable().default(null),
   runId: z.string(),
   startedAt: z.string(),
   finishedAt: z.string(),
@@ -27,7 +29,15 @@ export const ResultsSchema = z.object({
       fixture: z.object({ git: z.string(), ref: z.string() }).nullable(),
       servers: z.record(
         z.string(),
-        z.object({ command: z.string().optional(), url: z.string().optional(), version: z.string().nullable() }),
+        z.object({
+          command: z.string().optional(),
+          url: z.string().optional(),
+          /** As written in the suite ({fixture} unsubstituted); null in older files. */
+          args: z.array(z.string()).nullable().default(null),
+          /** Setup command as written in the suite; null when there is none (or in older files). */
+          setup: z.string().nullable().default(null),
+          version: z.string().nullable(),
+        }),
       ),
       /** Pinned OpenRouter provider slug per model (the provider name for unpinned mock models). */
       models: z.array(ModelInfo),
@@ -42,8 +52,10 @@ export const ResultsSchema = z.object({
           plannedRuns: z.number().int().nonnegative().nullable(),
           /** runs === plannedRuns. Always false in results upgraded from v1. */
           complete: z.boolean(),
-          /** null when the cell has no completed (pass/fail) runs. */
+          /** passes / (passes + fails): errors excluded. null when the cell has no completed (pass/fail) runs. */
           successRate: z.number().min(0).max(1).nullable(),
+          /** passes / runs: errors count as failures. null when the cell has no runs (or in older files). */
+          successRateWithErrors: z.number().min(0).max(1).nullable().default(null),
           successCi95: z.tuple([z.number(), z.number()]),
           toolAccuracy: z.number().min(0).max(1).nullable(),
           /** Headline: o200k_base tokens returned by tool calls, per run. */
