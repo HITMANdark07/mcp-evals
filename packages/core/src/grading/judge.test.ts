@@ -75,4 +75,14 @@ describe('runJudge', () => {
     const broke = scripted([new OutOfCreditsError('402')]);
     await expect(runJudge({ provider: broke.provider, model: 'j' }, input)).rejects.toBeInstanceOf(OutOfCreditsError);
   });
+
+  it('rejects out-of-range scores and rethrows unexpected errors unchanged', async () => {
+    for (const score of [5, -1]) {
+      const s = scripted([`{"pass": true, "score": ${score}, "reason": "x"}`]);
+      expect(await runJudge({ provider: s.provider, model: 'j' }, input)).toMatchObject({ pass: false, detail: expect.stringMatching(/score must be a number between 0 and 1/) });
+    }
+    const bug = new Error('bug');
+    const b = scripted([bug]);
+    await expect(runJudge({ provider: b.provider, model: 'j' }, input)).rejects.toBe(bug);
+  });
 });

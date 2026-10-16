@@ -45,10 +45,10 @@ export function validateJson(value: unknown, schema: JsonSchema, path = '$'): st
   }
   if (isPlainObject(value)) {
     for (const key of schema.required ?? []) {
-      if (!(key in value)) errors.push(`${path}: missing required property "${key}"`);
+      if (!Object.hasOwn(value, key)) errors.push(`${path}: missing required property "${key}"`);
     }
     for (const [key, sub] of Object.entries(schema.properties ?? {})) {
-      if (key in value) errors.push(...validateJson(value[key], sub, `${path}.${key}`));
+      if (Object.hasOwn(value, key)) errors.push(...validateJson(value[key], sub, `${path}.${key}`));
     }
     if (schema.additionalProperties === false) {
       const allowed = new Set(Object.keys(schema.properties ?? {}));

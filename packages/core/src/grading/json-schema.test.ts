@@ -44,6 +44,14 @@ describe('validateJson', () => {
   });
 });
 
+describe('validateJson own properties', () => {
+  it('ignores inherited names for required and properties', () => {
+    expect(validateJson({}, { type: 'object', required: ['constructor'] })).toEqual(['$: missing required property "constructor"']);
+    expect(validateJson({}, { type: 'object', properties: { toString: { type: 'string' } } } as JsonSchema)).toEqual([]);
+    expect(validateJson(JSON.parse('{"constructor":"x"}'), { type: 'object', required: ['constructor'], properties: { constructor: { type: 'string' } } } as JsonSchema)).toEqual([]);
+  });
+});
+
 describe('JsonSchemaSchema', () => {
   it('accepts the supported subset and rejects other keywords', () => {
     expect(JsonSchemaSchema.safeParse(schema).success).toBe(true);

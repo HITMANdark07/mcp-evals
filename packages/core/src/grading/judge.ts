@@ -68,12 +68,13 @@ export async function runJudge(cfg: JudgeConfig, input: JudgeInput): Promise<Jud
       });
     } catch (e) {
       if (e instanceof OutOfCreditsError) throw e;
-      if (e instanceof ProviderError && e.retryable && attempt <= retries) {
+      if (!(e instanceof ProviderError)) throw e;
+      if (e.retryable && attempt <= retries) {
         await sleep(500 * 2 ** (attempt - 1));
         continue;
       }
       // Not retryable by the runner either: re-running the agent would pay for it twice.
-      throw new InfraError('provider', `judge ${cfg.model}: ${e instanceof Error ? e.message : String(e)}`, false);
+      throw new InfraError('provider', `judge ${cfg.model}: ${e.message}`, false);
     }
     return { ...parseVerdict(res.content ?? '', input.passThreshold), costUsd: res.usage.costUsd };
   }
@@ -86,7 +87,10 @@ function parseVerdict(text: string, threshold: number | undefined): { pass: bool
   const { pass, reason, score } = parsed.value;
   if (typeof pass !== 'boolean') return unparseable;
   const why = typeof reason === 'string' ? reason : '(no reason given)';
-  const s = typeof score === 'number' && Number.isFinite(score) ? score : undefined;
+  if (score !== undefined && !(typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 1)) {
+    return { pass: false, detail: `unparseable judge verdict: score must be a number between 0 and 1, got ${JSON.stringify(score)}` };
+  }
+  const s = score;
   if (threshold !== undefined) {
     if (s === undefined) return { pass: false, detail: `judge gave no score (pass_threshold ${threshold}): ${why}` };
     return { pass: s >= threshold, detail: `judge score ${s} ${s >= threshold ? '>=' : '<'} ${threshold}: ${why}` };
