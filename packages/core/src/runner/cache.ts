@@ -199,8 +199,13 @@ function manifestPath(dir: string, runId: string): string {
   return join(dir, `${runId}.manifest.json`);
 }
 
+/** A run id is one safe path segment: letters, digits, ".", "_" and "-", starting with a letter or digit. */
+export function isValidRunId(runId: string): boolean {
+  return RUN_ID.test(runId);
+}
+
 function assertRunId(runId: string): void {
-  if (!RUN_ID.test(runId)) throw new ConfigError(`invalid run id "${runId}": use letters, digits, ".", "_" and "-" only`);
+  if (!isValidRunId(runId)) throw new ConfigError(`invalid run id "${runId}": use letters, digits, ".", "_" and "-" only`);
 }
 
 function parseLine(line: string): unknown {

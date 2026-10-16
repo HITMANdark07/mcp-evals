@@ -34,7 +34,7 @@ export {
   type StopReason,
   REPEATED_PROVIDER_ERROR_LIMIT,
 } from './runner/run.js';
-export { RunCache, identityOf, suiteHash, DEFAULT_RUNS_DIR, type RunIdentity, type RunManifest } from './runner/cache.js';
+export { RunCache, identityOf, suiteHash, isValidRunId, DEFAULT_RUNS_DIR, type RunIdentity, type RunManifest } from './runner/cache.js';
 export {
   checkServers,
   estimateCost,
