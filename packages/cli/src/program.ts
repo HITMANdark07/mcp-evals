@@ -23,7 +23,7 @@ const defaultDeps: ProgramDeps = {
   writeErr: (s) => process.stderr.write(s),
 };
 
-type RunFlags = Omit<RunCommandOptions, 'suites' | 'retries' | 'connector' | 'log' | 'env' | 'openRouterBaseUrl' | 'now'>;
+type RunFlags = Omit<RunCommandOptions, 'suites' | 'retries' | 'connector' | 'log' | 'env' | 'openRouterBaseUrl' | 'now' | 'invocation'>;
 
 const list = (v: string) => v.split(',').map((s) => s.trim()).filter(Boolean);
 
@@ -73,6 +73,7 @@ export async function main(argv: string[], deps: ProgramDeps = defaultDeps): Pro
     .option('--repeats <n>', 'override repeats per task', positiveInt('--repeats'))
     .option('--budget-usd <n>', 'hard cost cap for this invocation', positiveNumber('--budget-usd'))
     .option('--resume <runId>', 'continue a cached run, skipping the runs it already finished')
+    .option('--retry-errors', 'with --resume: also re-run cached runs that ended in an error')
     .option('--yes', 'start even if the pre-flight estimate exceeds --budget-usd')
     .option('--estimate-from <results.json>', 'estimate cost from measured cost per run in earlier results (e.g. a smoke run)')
     .option('--out <path>', 'results file', 'results.json')

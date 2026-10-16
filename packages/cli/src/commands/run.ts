@@ -13,6 +13,7 @@ import {
   parseMockScript,
   previewPlan,
   ResultsSchema,
+  REPEATED_PROVIDER_ERROR_LIMIT,
   RunCache,
   runSuites,
   stdioConnector,
@@ -22,10 +23,11 @@ import {
   type ModelProvider,
   type Results,
   type RunRecord,
+  type RunSuitesOutput,
   type Suite,
 } from '@mcp-evals/core';
 import { fsReason, writeFileAtomic } from '../files.js';
-import { formatTable } from '../report/table.js';
+import { formatTable, usd } from '../report/table.js';
 import { CLI_VERSION } from '../version.js';
 import { openRouterPreflight } from './preflight.js';
 
@@ -42,6 +44,8 @@ export interface RunCommandOptions {
   budgetUsd?: number;
   /** Continue a cached run: skip its finished runs and reuse its runId. */
   resume?: string;
+  /** With --resume: re-run cached runs whose outcome was `error` instead of treating them as finished. */
+  retryErrors?: boolean;
   /** Start even if the pre-flight estimate exceeds the budget. */
   yes?: boolean;
   /** results.json whose measured cost per run drives the estimate (e.g. the smoke run). */
@@ -58,6 +62,8 @@ export interface RunCommandOptions {
   /** Test seam: point the OpenRouter client at a local fake server. */
   openRouterBaseUrl?: string;
   now?: () => Date;
+  /** How this CLI was invoked (default: process.argv[0..1]); the printed resume command starts with it. */
+  invocation?: string[];
 }
 
 export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: number; results?: Results; runId?: string }> {
@@ -81,7 +87,9 @@ export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: numb
       cache.assertCompatible(identity);
       prior = await cache.records();
     }
-    const skip = new Set(prior.map((r) => r.runKey));
+    if (o.retryErrors && o.resume === undefined) throw new ConfigError('--retry-errors only applies with --resume <runId>');
+    // Error records count as finished, unless --retry-errors asks to run them again.
+    const skip = new Set(prior.filter((r) => !(o.retryErrors && r.outcome === 'error')).map((r) => r.runKey));
     const plan = previewPlan({ suites, ...filters, skip });
     const fixtures = new FixtureManager({ cacheDir: resolve(o.cacheDir) });
     const connector = o.connector ?? stdioConnector;
@@ -114,7 +122,7 @@ export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: numb
     const runId = runCache.manifest.runId;
     const priorUnrecordedUsd = runCache.manifest.unrecordedSpendUsd;
     const remaining = plan.remaining.reduce((s, c) => s + c.runs, 0);
-    log(`run ${runId}: ${remaining} run(s) to execute${prior.length > 0 ? `, ${prior.length} reused from the run cache` : ''}`);
+    log(`run ${runId}: ${remaining} run(s) to execute${o.resume !== undefined ? `, ${skip.size} reused from the run cache` : ''}`);
 
     const run = await runSuites({
       suites,
@@ -130,10 +138,18 @@ export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: numb
         log(`${r.outcome.padEnd(5)} ${r.suite}/${r.server}/${r.model}/${r.task}#${r.repeat}${r.failReason ? ` — ${r.failReason}` : ''}`);
       },
     });
-    const unrecordedUsd = run.totalCostUsd - run.records.reduce((s, r) => s + r.costUsd, 0);
+    // The last record per runKey wins (a retried error is replaced). The replaced record's spend was real:
+    // keep it as unrecorded spend, so the total stays right now and in every later resume.
+    const merged = new Map(prior.map((r) => [r.runKey, r] as const));
+    let replacedUsd = 0;
+    for (const r of run.records) {
+      replacedUsd += merged.get(r.runKey)?.costUsd ?? 0;
+      merged.set(r.runKey, r);
+    }
+    const unrecordedUsd = run.totalCostUsd - run.records.reduce((s, r) => s + r.costUsd, 0) + replacedUsd;
     if (unrecordedUsd > 1e-9) await runCache.addUnrecordedSpend(unrecordedUsd);
 
-    const records = [...prior, ...run.records];
+    const records = [...merged.values()];
     const plannedTotal = run.planned.reduce((s, c) => s + c.runs, 0);
     const results = ResultsSchema.parse(
       aggregate({
@@ -146,7 +162,7 @@ export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: numb
         startedAt: runCache.manifest.createdAt,
         finishedAt: run.finishedAt,
         partial: records.length < plannedTotal,
-        totalCostUsd: prior.reduce((s, r) => s + r.costUsd, 0) + priorUnrecordedUsd + run.totalCostUsd,
+        totalCostUsd: records.reduce((s, r) => s + r.costUsd, 0) + priorUnrecordedUsd + Math.max(0, unrecordedUsd),
       }),
     );
     // Build both payloads first, then write each atomically: traces first, so a results file always has its traces.
@@ -157,9 +173,13 @@ export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: numb
 
     log('');
     log(formatTable(results));
-    if (run.stopReason === 'out_of_credits') log('STOPPED: OpenRouter reports the key is out of credits (HTTP 402). Results so far are saved.');
-    if (results.partial) {
-      log(`Resume the remaining runs with the same suites and filters: mcp-evals run ${o.suites.join(' ')} --resume ${runId} --budget-usd <n>`);
+    const stopped = stoppedLine(run, o);
+    if (stopped) log(stopped);
+    if (results.partial || run.stopReason !== null) {
+      log('# Resume the remaining runs with the command below; replace <amount> with the USD cap for the resumed invocation (it caps only new spend).');
+      const errors = records.filter((r) => r.outcome === 'error').length;
+      if (errors > 0) log(`# Add --retry-errors to also re-run the ${errors} run(s) that ended in an error.`);
+      log(resumeCommand(o, runId));
     }
     return { exitCode: 0, results, runId };
   } catch (e) {
@@ -170,6 +190,46 @@ export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: numb
     }
     throw e;
   }
+}
+
+function stoppedLine(run: RunSuitesOutput, o: RunCommandOptions): string | undefined {
+  const detail = run.stopDetail ?? 'no detail';
+  switch (run.stopReason) {
+    case null:
+      return undefined;
+    case 'budget':
+      return `STOPPED: budget cap reached (--budget-usd ${usd(o.budgetUsd ?? 0)}) — run is resumable`;
+    case 'out_of_credits':
+      return `STOPPED: OpenRouter reports the key is out of credits or at its spend limit (${detail}). Results so far are saved — run is resumable`;
+    case 'cost_unknown':
+      return `STOPPED: cost could not be determined (${detail}) — run is resumable`;
+    case 'repeated_provider_error': {
+      const at = detail.indexOf(': ');
+      const model = at === -1 ? detail : detail.slice(0, at);
+      const message = at === -1 ? detail : detail.slice(at + 2);
+      return `STOPPED: ${REPEATED_PROVIDER_ERROR_LIMIT} consecutive runs of ${model} ended in the same provider error (${message}) — run is resumable`;
+    }
+  }
+}
+
+/** A runnable command (same invocation, suites and identity flags) that resumes this run. */
+function resumeCommand(o: RunCommandOptions, runId: string): string {
+  const invocation = o.invocation ?? process.argv.slice(0, 2);
+  const args = ['run', ...o.suites, '--resume', runId, '--provider', o.provider];
+  if (o.mockScript !== undefined) args.push('--mock-script', o.mockScript);
+  if (o.models !== undefined) args.push('--models', o.models.join(','));
+  if (o.servers !== undefined) args.push('--servers', o.servers.join(','));
+  if (o.tasks !== undefined) args.push('--tasks', o.tasks.join(','));
+  if (o.repeats !== undefined) args.push('--repeats', String(o.repeats));
+  args.push('--out', o.out);
+  if (o.traces !== undefined) args.push('--traces', o.traces);
+  if (o.runsDir !== undefined) args.push('--runs-dir', o.runsDir);
+  args.push('--cache-dir', o.cacheDir);
+  return `${[...invocation, ...args].map(shellQuote).join(' ')} --budget-usd <amount>`;
+}
+
+function shellQuote(s: string): string {
+  return /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.split("'").join(`'\\''`)}'`;
 }
 
 async function makeMockProvider(o: RunCommandOptions): Promise<ModelProvider> {

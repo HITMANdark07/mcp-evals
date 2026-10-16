@@ -34,7 +34,7 @@ export function formatTable(results: Results): string {
   );
   const out = [alignColumns([HEADER, ...rows])];
   const notices: string[] = [];
-  if (results.partial) notices.push('PARTIAL: the budget cap or an out-of-credits stop ended the run before every planned run finished.');
+  if (results.partial) notices.push('PARTIAL: the run stopped (budget cap, out of credits, unknown cost or repeated provider errors) before every planned run finished.');
   const incomplete = results.suites.flatMap((s) => s.cells).filter(isIncomplete).length;
   if (incomplete > 0) notices.push(`INCOMPLETE: ${incomplete} cell(s) did not finish every planned run; do not compare them as if complete.`);
   if (notices.length > 0) out.push('', ...notices);

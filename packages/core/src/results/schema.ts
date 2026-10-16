@@ -17,7 +17,7 @@ export const ResultsSchema = z.object({
   runId: z.string(),
   startedAt: z.string(),
   finishedAt: z.string(),
-  /** true when the budget cap or an out-of-credits stop left planned runs unexecuted. */
+  /** true when a stop (budget cap, out of credits, unknown cost, repeated provider errors) left planned runs unexecuted. */
   partial: z.boolean(),
   totalCostUsd: z.number().nonnegative(),
   suites: z.array(

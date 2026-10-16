@@ -28,12 +28,12 @@ describe('main', () => {
     const { calls, deps } = stub();
     const argv = [
       'run', 'a.yaml', 'b.yaml', '--provider', 'mock', '--mock-script', 'm.json', '--models', 'x/a, x/b', '--servers', 'fs', '--tasks', 't1,t2',
-      '--repeats', '2', '--budget-usd', '9.5', '--resume', 'r1', '--yes', '--estimate-from', 'smoke.json', '--out', 'o.json', '--traces', 't.jsonl',
+      '--repeats', '2', '--budget-usd', '9.5', '--resume', 'r1', '--retry-errors', '--yes', '--estimate-from', 'smoke.json', '--out', 'o.json', '--traces', 't.jsonl',
     ];
     expect(await main(argv, deps)).toBe(0);
     expect(calls[0]![1]).toEqual({
       suites: ['a.yaml', 'b.yaml'], provider: 'mock', mockScript: 'm.json', models: ['x/a', 'x/b'], servers: ['fs'], tasks: ['t1', 't2'],
-      repeats: 2, budgetUsd: 9.5, resume: 'r1', yes: true, estimateFrom: 'smoke.json', out: 'o.json', traces: 't.jsonl',
+      repeats: 2, budgetUsd: 9.5, resume: 'r1', retryErrors: true, yes: true, estimateFrom: 'smoke.json', out: 'o.json', traces: 't.jsonl',
       cacheDir: '.mcp-evals/cache', runsDir: '.mcp-evals/runs',
     });
   });
