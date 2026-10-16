@@ -8,6 +8,7 @@ function stub() {
     run: async (o) => (calls.push(['run', o]), { exitCode: 0 }),
     compare: async (o) => (calls.push(['compare', o]), { exitCode: 1 }),
     report: async (o) => (calls.push(['report', o]), { exitCode: 0 }),
+    publish: async (o) => (calls.push(['publish', o]), { exitCode: 0 }),
     writeOut: () => {},
     writeErr: (s) => {
       err.push(s);
@@ -70,5 +71,12 @@ describe('main', () => {
   it('exits 0 for --help and --version', async () => {
     expect(await main(['--help'], stub().deps)).toBe(0);
     expect(await main(['--version'], stub().deps)).toBe(0);
+  });
+
+  it('parses publish flags and requires --traces', async () => {
+    const { calls, deps } = stub();
+    expect(await main(['publish', 'r.json', '--traces', 't.jsonl', '--latest'], deps)).toBe(0);
+    expect(calls[0]).toEqual(['publish', { results: 'r.json', traces: 't.jsonl', dataDir: 'data', latest: true }]);
+    expect(await main(['publish', 'r.json'], stub().deps)).toBe(2);
   });
 });
