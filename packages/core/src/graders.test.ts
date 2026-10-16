@@ -1,9 +1,10 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { describeFailures, runGraders, taskPassed, toolSelectionOk, type GradeContext } from './graders.js';
-import type { GraderSpec, TraceEvent } from './types.js';
+import { ConfigError } from './errors.js';
+import { describeFailures, gradersCostUsd, runGraders, taskPassed, toolSelectionOk, type GradeContext } from './graders.js';
+import type { GraderSpec, ModelProvider, TraceEvent } from './types.js';
 import { sha256Hex } from './util.js';
 
 const call = (tool: string, args: Record<string, unknown> | null): TraceEvent => ({
@@ -107,5 +108,88 @@ describe('pass rules', () => {
     expect(describeFailures([r({ pass: false, detail: 'echo not called' }), r({ pass: false, budget: true })])).toBe(
       'tool_called: echo not called',
     );
+  });
+});
+
+describe('answer_json_schema', () => {
+  const spec: GraderSpec = { type: 'answer_json_schema', schema: { type: 'object', required: ['n'], properties: { n: { type: 'integer' } } } };
+  it('passes valid JSON (plain or fenced) and fails invalid or missing JSON with the reason', async () => {
+    expect((await one(spec, ctx({ finalAnswer: '{"n": 3}' }))).pass).toBe(true);
+    expect((await one(spec, ctx({ finalAnswer: 'Result:\n```json\n{"n": 4}\n```' }))).pass).toBe(true);
+    expect(await one(spec, ctx({ finalAnswer: '{"n": "3"}' }))).toMatchObject({ pass: false, detail: '$.n: expected integer, got string' });
+    expect(await one(spec, ctx({ finalAnswer: 'three' }))).toMatchObject({ pass: false, detail: expect.stringMatching(/not JSON/) });
+    expect(await one(spec, ctx({ finalAnswer: null }))).toMatchObject({ pass: false, detail: 'no final answer' });
+  });
+});
+
+describe('llm_judge ordering', () => {
+  function judge(reply = '{"pass": true, "reason": "fine"}') {
+    const calls: string[] = [];
+    const provider: ModelProvider = {
+      name: 'stub',
+      chat: async (req) => {
+        calls.push(req.model);
+        return { content: reply, toolCalls: [], usage: { promptTokens: 1, completionTokens: 1, costUsd: 0.0003 }, latencyMs: 1 };
+      },
+    };
+    return { calls, cfg: { provider, model: 'j/judge' } };
+  }
+  const specs: GraderSpec[] = [
+    { type: 'llm_judge', rubric: 'Mentions src/A.ts.' },
+    { type: 'answer_contains_all', values: ['src/A.ts'], caseSensitive: false },
+    { type: 'max_steps', value: 1, strict: false },
+  ];
+
+  it('runs the judge last, after the deterministic graders passed, and records its cost', async () => {
+    const { calls, cfg } = judge();
+    const results = await runGraders(specs, ctx({ judge: cfg, taskPrompt: 'Where?' }));
+    expect(results.map((r) => r.type)).toEqual(['llm_judge', 'answer_contains_all', 'max_steps']);
+    expect(results[0]).toMatchObject({ pass: true, skipped: false, costUsd: 0.0003 });
+    expect(calls).toEqual(['j/judge']);
+    expect(gradersCostUsd(results)).toBeCloseTo(0.0003, 12);
+    expect(taskPassed(results, 'final_answer')).toBe(true);
+  });
+
+  it('does not call the judge when a deterministic grader failed or there is no final answer', async () => {
+    const { calls, cfg } = judge();
+    const failed = await runGraders(specs, ctx({ judge: cfg, finalAnswer: 'nothing useful' }));
+    expect(failed[0]).toMatchObject({ skipped: true, detail: 'not run: a deterministic grader failed' });
+    const none = await runGraders(specs, ctx({ judge: cfg, finalAnswer: null }));
+    expect(none[0]).toMatchObject({ skipped: true, detail: 'not run: no final answer' });
+    expect(calls).toEqual([]);
+    expect(gradersCostUsd(failed)).toBe(0);
+  });
+
+  it('a failing verdict fails the task', async () => {
+    const { cfg } = judge('{"pass": false, "reason": "vague"}');
+    const results = await runGraders(specs, ctx({ judge: cfg }));
+    expect(results[0]).toMatchObject({ pass: false, detail: 'judge fail: vague' });
+    expect(taskPassed(results, 'final_answer')).toBe(false);
+  });
+
+  it('throws a ConfigError when the suite has no judge', async () => {
+    await expect(runGraders(specs, ctx())).rejects.toBeInstanceOf(ConfigError);
+  });
+});
+
+describe('fs_state edge cases (M1 follow-up)', () => {
+  it('counts a directory as existing and a path through a file as missing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ws-'));
+    await mkdir(join(dir, 'sub'));
+    await writeFile(join(dir, 'file.txt'), 'x');
+    const c = ctx({ workspace: { dir, snapshot: new Map() } });
+    expect((await one({ type: 'fs_state', path: 'sub', exists: true }, c)).pass).toBe(true);
+    expect((await one({ type: 'fs_state', path: 'sub' }, c)).pass).toBe(true);
+    expect((await one({ type: 'fs_state', path: 'file.txt/inner', exists: false }, c)).pass).toBe(true);
+    expect(await one({ type: 'fs_state', path: 'sub', contains: 'x' }, c)).toMatchObject({ pass: false, detail: expect.stringMatching(/is a directory/) });
+  });
+
+  it.skipIf(process.getuid?.() === 0)('treats an unreadable file as a failure, never as missing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ws-'));
+    await writeFile(join(dir, 'secret.txt'), 'x');
+    await chmod(join(dir, 'secret.txt'), 0o000);
+    const c = ctx({ workspace: { dir, snapshot: new Map() } });
+    expect(await one({ type: 'fs_state', path: 'secret.txt', exists: false }, c)).toMatchObject({ pass: false, detail: expect.stringMatching(/cannot read \(EACCES\)/) });
+    await chmod(join(dir, 'secret.txt'), 0o600);
   });
 });

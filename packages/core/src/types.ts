@@ -15,6 +15,17 @@ export interface ServerSpec {
   setup?: string;
 }
 
+/** The JSON Schema subset supported by answer_json_schema. */
+export interface JsonSchema {
+  type?: 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null';
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  items?: JsonSchema;
+  enum?: unknown[];
+  minItems?: number;
+  additionalProperties?: boolean;
+}
+
 interface GraderBase {
   /** When set, the grader only applies to runs against this server; otherwise it is skipped. */
   server?: string;
@@ -23,6 +34,8 @@ interface GraderBase {
 export type GraderSpec =
   | (GraderBase & { type: 'answer_contains_all'; values: string[]; caseSensitive: boolean })
   | (GraderBase & { type: 'answer_matches'; pattern: string; flags: string })
+  | (GraderBase & { type: 'answer_json_schema'; schema: JsonSchema })
+  | (GraderBase & { type: 'llm_judge'; rubric: string; passThreshold?: number })
   | (GraderBase & { type: 'tool_called'; tool: string })
   | (GraderBase & { type: 'tool_not_called'; tool: string })
   | (GraderBase & { type: 'tool_args_match'; tool: string; args: JsonObject })

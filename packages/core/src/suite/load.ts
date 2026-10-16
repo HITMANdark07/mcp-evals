@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { JsonSchemaSchema } from '../grading/json-schema.js';
 import type { GraderSpec, ServerSpec, Suite, TaskSpec } from '../types.js';
 
 export class SuiteError extends Error {
@@ -26,6 +27,8 @@ const budget = { value: z.number().int().positive(), strict: z.boolean().default
 const GraderSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('answer_contains_all'), values: z.array(z.string().min(1)).min(1), case_sensitive: z.boolean().default(false), ...serverRef }).strict(),
   z.object({ type: z.literal('answer_matches'), pattern: z.string().min(1), flags: z.string().regex(/^[imsu]*$/, 'flags may only contain i, m, s, u').default(''), ...serverRef }).strict(),
+  z.object({ type: z.literal('answer_json_schema'), schema: JsonSchemaSchema, ...serverRef }).strict(),
+  z.object({ type: z.literal('llm_judge'), rubric: z.string().min(1), pass_threshold: z.number().min(0).max(1).optional(), ...serverRef }).strict(),
   z.object({ type: z.literal('tool_called'), tool: z.string().min(1), ...serverRef }).strict(),
   z.object({ type: z.literal('tool_not_called'), tool: z.string().min(1), ...serverRef }).strict(),
   z.object({ type: z.literal('tool_args_match'), tool: z.string().min(1), args: z.record(z.string(), z.unknown()), ...serverRef }).strict(),
@@ -168,6 +171,7 @@ function semanticIssues(s: RawSuite): string[] {
     t.graders.forEach((g, i) => {
       const at = `tasks.${t.id}.graders[${i}]`;
       if (g.server !== undefined && !servers.has(g.server)) issues.push(`${at}.server: unknown server "${g.server}"`);
+      if (g.type === 'llm_judge' && !s.judge) issues.push(`${at}: llm_judge needs a suite-level judge: block`);
       if (g.type === 'answer_matches') {
         try {
           new RegExp(g.pattern, g.flags);
@@ -234,6 +238,10 @@ function toGrader(g: RawGrader): GraderSpec {
       return { type: g.type, values: g.values, caseSensitive: g.case_sensitive, ...server };
     case 'answer_matches':
       return { type: g.type, pattern: g.pattern, flags: g.flags, ...server };
+    case 'answer_json_schema':
+      return { type: g.type, schema: g.schema, ...server };
+    case 'llm_judge':
+      return { type: g.type, rubric: g.rubric, ...(g.pass_threshold !== undefined ? { passThreshold: g.pass_threshold } : {}), ...server };
     case 'tool_called':
     case 'tool_not_called':
       return { type: g.type, tool: g.tool, ...server };
