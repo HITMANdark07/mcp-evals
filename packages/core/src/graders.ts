@@ -63,7 +63,7 @@ export function taskPassed(results: GraderResult[], end: LoopEnd | null): boolea
 }
 
 /**
- * Whether the run's tool graders passed; null when the task has none. An unknown-tool call (`end: invalid_tool_call`)
+ * Whether the run's tool graders passed; null when the task has none. An invalid tool call (`end: invalid_tool_call`)
  * fails the run and is reported separately as `invalidToolCallRate`, so it does not count here on its own.
  */
 export function toolSelectionOk(results: GraderResult[]): boolean | null {
