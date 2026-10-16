@@ -1,14 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { estimateTokens, isPlainObject, mean, median, runKey, sha256Hex, substituteVars } from './util.js';
-
-describe('estimateTokens', () => {
-  it('is ceil(chars / 4) and 0 for empty', () => {
-    expect(estimateTokens('')).toBe(0);
-    expect(estimateTokens('abc')).toBe(1);
-    expect(estimateTokens('abcdefgh')).toBe(2);
-    expect(estimateTokens('abcdefghi')).toBe(3);
-  });
-});
+import { isPlainObject, mean, median, runKey, sha256Hex, substituteVars } from './util.js';
 
 describe('runKey', () => {
   const base = { suite: 's', server: 'srv', model: 'a/b', task: 't', repeat: 0 };

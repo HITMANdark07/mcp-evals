@@ -6,9 +6,11 @@ import { buildFakeServer } from '../../test/fixtures/fake-server.mjs';
 import { createInMemoryConnector } from '../mcp/connection.js';
 import { MockProvider, parseMockScript } from '../providers/mock.js';
 import { convertTools } from '../tools/convert.js';
-import { InfraError } from '../errors.js';
-import type { ModelProvider } from '../types.js';
-import { estimateTokens } from '../util.js';
+import { CostUnknownError, InfraError, OutOfCreditsError, ProviderError } from '../errors.js';
+import { OpenRouterProvider } from '../providers/openrouter.js';
+import { completion, startFakeOpenRouter, toolCall } from '../../test/fixtures/fake-openrouter.js';
+import type { ChatRequest, ModelProvider } from '../types.js';
+import { countTokens } from '../tokens.js';
 import { runAgentLoop, type AgentLoopOptions } from './loop.js';
 
 const connect = createInMemoryConnector((ctx) => buildFakeServer(ctx.cwd));
@@ -31,7 +33,7 @@ describe('runAgentLoop', () => {
     expect(r.end).toBe('final_answer');
     expect(r.finalAnswer).toBe('all done');
     expect(r.steps).toBe(2);
-    expect(r.contextTokens).toBe(estimateTokens('hello') + estimateTokens('x'.repeat(40)));
+    expect(r.contextTokens).toBe(countTokens('hello') + countTokens('x'.repeat(40)));
     expect(r.costUsd).toBeCloseTo(0.002, 6);
     expect(r.events.map((e) => e.type)).toEqual(['model_call', 'tool_call', 'tool_result', 'tool_call', 'tool_result', 'model_call', 'final_answer']);
     await connection.close();
@@ -144,5 +146,128 @@ describe('runAgentLoop', () => {
   it('checks budget before max_steps', async () => {
     const { opts } = await setup([{ content: 'x' }], { maxSteps: 0, shouldStop: () => true });
     expect((await runAgentLoop(opts)).end).toBe('budget');
+  });
+
+  it('ends with tool_timeout (a model fail, not infra) when one call exceeds the tool timeout', async () => {
+    const { opts } = await setup([{ toolCalls: [{ name: 'slow', arguments: { ms: 400 } }] }, { content: 'never' }], {
+      toolTimeoutMs: 50,
+      timeoutMs: 5000,
+    });
+    const r = await runAgentLoop(opts);
+    expect(r.end).toBe('tool_timeout');
+    expect(r.infraError).toBeUndefined();
+    expect(r.failReason).toBe('tool "slow" exceeded the 50ms tool timeout');
+    expect(r.events.at(-1)).toMatchObject({ type: 'error', kind: 'tool_timeout' });
+  });
+
+  it('still ends with timeout when the run deadline, not the tool timeout, cut the call short', async () => {
+    const { opts } = await setup([{ toolCalls: [{ name: 'slow', arguments: { ms: 400 } }] }, { content: 'never' }], {
+      toolTimeoutMs: 60_000,
+      timeoutMs: 100,
+    });
+    expect((await runAgentLoop(opts)).end).toBe('timeout');
+  });
+
+  it('passes the provider pin and records who served each call', async () => {
+    const { opts } = await setup([{ content: 'unused' }]);
+    const seen: ChatRequest[] = [];
+    const served: ModelProvider = {
+      name: 'served',
+      chat: async (req) => {
+        seen.push(req);
+        return { content: 'done', toolCalls: [], usage: { promptTokens: 9, completionTokens: 1, costUsd: 0.001 }, latencyMs: 1, servedBy: 'Acme' };
+      },
+    };
+    const r = await runAgentLoop({ ...opts, provider: served, providerPin: 'acme' });
+    expect(seen[0]!.providerPin).toBe('acme');
+    expect(r.events[0]).toMatchObject({ type: 'model_call', servedBy: 'Acme' });
+  });
+
+  it('ends like a budget stop, flagged outOfCredits, on OutOfCreditsError', async () => {
+    const { opts } = await setup([{ content: 'unused' }]);
+    const broke: ModelProvider = { name: 'broke', chat: () => Promise.reject(new OutOfCreditsError('OpenRouter 402: no credits')) };
+    const r = await runAgentLoop({ ...opts, provider: broke });
+    expect(r).toMatchObject({ end: 'budget', outOfCredits: true, failReason: 'OpenRouter 402: no credits' });
+    expect(r.infraError).toBeUndefined();
+  });
+
+  it('ends like a budget stop, flagged costUnknown with the reason, on CostUnknownError, keeping known spend', async () => {
+    const { opts } = await setup([{ content: 'unused' }]);
+    let calls = 0;
+    const provider: ModelProvider = {
+      name: 'unknown-cost',
+      chat: async () => {
+        if (calls++ === 0) return { content: null, toolCalls: [{ id: 'c1', name: 'echo', arguments: '{"text":"a"}' }], usage: { promptTokens: 1, completionTokens: 1, costUsd: 0.002 }, latencyMs: 1 };
+        throw new CostUnknownError('usage.cost missing and no catalog price for m/a', 0.0005);
+      },
+    };
+    const r = await runAgentLoop({ ...opts, provider });
+    expect(r).toMatchObject({ end: 'budget', costUnknown: 'usage.cost missing and no catalog price for m/a' });
+    expect(r.infraError).toBeUndefined();
+    expect(r.outOfCredits).toBeUndefined();
+    expect(r.costUsd).toBeCloseTo(0.0025, 12);
+  });
+
+  it('adds the spend carried by a provider error (an error body with usage.cost) to the run cost', async () => {
+    const { opts } = await setup([{ content: 'unused' }]);
+    const provider: ModelProvider = { name: 'err-cost', chat: () => Promise.reject(new ProviderError('OpenRouter 502: upstream', true, 502, 0.01)) };
+    const r = await runAgentLoop({ ...opts, provider });
+    expect(r.end).toBe('infra_error');
+    expect(r.costUsd).toBeCloseTo(0.01, 12);
+    const broke: ModelProvider = { name: 'broke', chat: () => Promise.reject(new OutOfCreditsError('OpenRouter 402', 0.003)) };
+    expect((await runAgentLoop({ ...opts, provider: broke })).costUsd).toBeCloseTo(0.003, 12);
+  });
+
+  it('charges the aborted call when the run times out mid-call', async () => {
+    const { opts } = await setup([{ content: 'unused' }]);
+    const honoring: ModelProvider = {
+      name: 'honor',
+      chat: (req) => new Promise((_, reject) => {
+        req.signal?.addEventListener('abort', () => reject(new ProviderError('OpenRouter request aborted', false, undefined, 0.004)));
+      }),
+    };
+    const r = await runAgentLoop({ ...opts, provider: honoring, timeoutMs: 50 });
+    expect(r.end).toBe('timeout');
+    expect(r.costUsd).toBeCloseTo(0.004, 12);
+    const unpriced: ModelProvider = {
+      name: 'unpriced',
+      chat: (req) => new Promise((_, reject) => {
+        req.signal?.addEventListener('abort', () => reject(new CostUnknownError('request to m/a was aborted after it was sent and no catalog price is known')));
+      }),
+    };
+    expect(await runAgentLoop({ ...opts, provider: unpriced, timeoutMs: 50 })).toMatchObject({ end: 'budget', costUnknown: expect.stringMatching(/aborted/) });
+  });
+
+  it('charges the OpenRouter estimate for a request the run deadline aborted (fake OpenRouter)', async () => {
+    const f = await startFakeOpenRouter();
+    try {
+      f.enqueue({ delayMs: 2000 });
+      const { opts } = await setup([{ content: 'unused' }]);
+      const provider = new OpenRouterProvider({ apiKey: 'sk-test', baseUrl: f.baseUrl, prices: { 'm/a': { prompt: 0.000001, completion: 0.000002 } } });
+      const r = await runAgentLoop({ ...opts, provider, providerPin: 'acme', timeoutMs: 100 });
+      expect(r.end).toBe('timeout');
+      expect(r.costUsd).toBeGreaterThan(0);
+    } finally {
+      await f.close();
+    }
+  });
+
+  it('sends reasoning_details back with the assistant message on the next turn (fake OpenRouter)', async () => {
+    const details = [{ type: 'reasoning.text', text: 'think', signature: 'sig==', index: 0 }];
+    const first = completion({ tool_calls: [toolCall('call_1', 'echo', { text: 'hi' })] }) as { choices: Array<{ message: Record<string, unknown> }> };
+    first.choices[0]!.message.reasoning_details = details;
+    const f = await startFakeOpenRouter();
+    try {
+      f.enqueue({ json: first }, { json: completion({ content: 'done' }) });
+      const { opts } = await setup([{ content: 'unused' }]);
+      const provider = new OpenRouterProvider({ apiKey: 'sk-test', baseUrl: f.baseUrl });
+      const r = await runAgentLoop({ ...opts, provider, providerPin: 'acme' });
+      expect(r.end).toBe('final_answer');
+      const assistant = f.chatRequests()[1]!.body.messages.find((m: { role: string }) => m.role === 'assistant');
+      expect(assistant.reasoning_details).toEqual(details);
+      expect(JSON.stringify(r.events)).not.toContain('sig==');
+    } finally {
+      await f.close();
+    }
   });
 });

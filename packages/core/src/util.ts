@@ -1,11 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { JsonObject } from './types.js';
 
-/** M1 token estimate; replaced by a real tokenizer in M2. */
-export function estimateTokens(text: string): number {
-  return text.length === 0 ? 0 : Math.ceil(text.length / 4);
-}
-
 export function runKey(parts: { suite: string; server: string; model: string; task: string; repeat: number }): string {
   return createHash('sha256')
     .update([parts.suite, parts.server, parts.model, parts.task, String(parts.repeat)].join('\u0000'))
@@ -39,4 +34,11 @@ export function sha256Hex(data: string | Buffer): string {
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Backoff before retrying a transient provider error (429/5xx/network/timeout): 2 s, 10 s, then 30 s. */
+export const PROVIDER_BACKOFF_MS: readonly number[] = [2_000, 10_000, 30_000];
+
+export function providerBackoffMs(attempt: number): number {
+  return PROVIDER_BACKOFF_MS[Math.min(Math.max(attempt, 1), PROVIDER_BACKOFF_MS.length) - 1]!;
 }
