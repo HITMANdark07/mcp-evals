@@ -46,6 +46,14 @@ export interface RunDefaults {
   maxSteps: number;
   timeoutS: number;
   temperature: number;
+  /** Per-call MCP tool timeout (suite defaults.tool_timeout_s, default 60). Hitting it is a model fail. */
+  toolTimeoutS: number;
+}
+
+/** A model pinned to one OpenRouter provider slug. */
+export interface ModelSpec {
+  id: string;
+  provider: string;
 }
 
 export interface Suite {
@@ -55,7 +63,12 @@ export interface Suite {
   source: string;
   fixture?: FixtureSpec;
   servers: Record<string, ServerSpec>;
+  /** Model ids in suite order. */
   models: string[];
+  /** OpenRouter provider slug per model id, for `{ id, provider }` entries. Plain-string entries (mock) have none. */
+  modelPins: Record<string, string>;
+  /** Pinned judge model for llm_judge graders (the suite's `judge:` block). */
+  judge?: ModelSpec;
   defaults: RunDefaults;
   tasks: TaskSpec[];
 }
@@ -83,6 +96,8 @@ export type ChatMessage =
 
 export interface ChatRequest {
   model: string;
+  /** OpenRouter provider slug that must serve this request (no fallbacks). */
+  providerPin?: string;
   messages: ChatMessage[];
   tools: ToolDef[];
   temperature: number;
@@ -100,6 +115,8 @@ export interface ChatResponse {
   toolCalls: ToolCall[];
   usage: Usage;
   latencyMs: number;
+  /** Provider that actually served the call, when the API reports it. */
+  servedBy?: string;
 }
 
 export interface ModelProvider {
@@ -124,6 +141,8 @@ export interface McpConnection {
   callTool(name: string, args: JsonObject, timeoutMs: number): Promise<ToolCallResult>;
   /** Captured server stderr (stdio servers only; '' otherwise). */
   stderr(): string;
+  /** MCP serverInfo.version from initialize, when the server reported one. */
+  serverVersion?(): string | undefined;
   /** Never throws. */
   close(): Promise<void>;
 }
@@ -138,13 +157,13 @@ export type Connector = (server: ServerSpec, ctx: ConnectContext) => Promise<Mcp
 // ---- Traces & records ----------------------------------------------------
 /** `t` is milliseconds since the run started. `step` is the 1-based model-call number. */
 export type TraceEvent =
-  | { type: 'model_call'; step: number; t: number; latencyMs: number; promptTokens: number; completionTokens: number; costUsd: number }
+  | { type: 'model_call'; step: number; t: number; latencyMs: number; promptTokens: number; completionTokens: number; costUsd: number; servedBy?: string }
   | { type: 'tool_call'; step: number; t: number; callId: string; tool: string; args: JsonObject | null; rawArgs: string }
   | { type: 'tool_result'; step: number; t: number; callId: string; tool: string; isError: boolean; tokens: number; latencyMs: number; preview: string }
   | { type: 'final_answer'; step: number; t: number; text: string }
   | { type: 'error'; step: number; t: number; kind: string; message: string };
 
-export type LoopEnd = 'final_answer' | 'max_steps' | 'timeout' | 'budget' | 'invalid_tool_call' | 'infra_error';
+export type LoopEnd = 'final_answer' | 'max_steps' | 'timeout' | 'tool_timeout' | 'budget' | 'invalid_tool_call' | 'infra_error';
 
 export interface GraderResult {
   type: GraderType;
@@ -154,6 +173,8 @@ export interface GraderResult {
   /** Budget graders are recorded but do not decide pass/fail unless strict. */
   budget: boolean;
   detail: string;
+  /** Spend of model-graded checks (llm_judge); added to the run's cost. */
+  costUsd?: number;
 }
 
 export type Outcome = 'pass' | 'fail' | 'error';
@@ -196,5 +217,15 @@ export interface RunRecord {
   latencyMs: number;
   costUsd: number;
   attempts: number;
+  /** MCP serverInfo.version of the server this run used. */
+  serverVersion?: string;
   trace: Trace;
+}
+
+/** Runs the plan scheduled for one suite × server × model cell. */
+export interface PlannedCell {
+  suite: string;
+  server: string;
+  model: string;
+  runs: number;
 }

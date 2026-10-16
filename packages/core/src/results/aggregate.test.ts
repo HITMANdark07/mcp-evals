@@ -30,7 +30,8 @@ const suite: Suite = {
     other: { command: 'node', args: [], env: {}, headers: {} },
   },
   models: ['m/a', 'm/b'],
-  defaults: { repeats: 2, maxSteps: 5, timeoutS: 10, temperature: 0 },
+  modelPins: {},
+  defaults: { repeats: 2, maxSteps: 5, timeoutS: 10, temperature: 0, toolTimeoutS: 60 },
   tasks: [
     { id: 't1', prompt: 'p', graders: [] },
     { id: 't2', prompt: 'q', graders: [] },

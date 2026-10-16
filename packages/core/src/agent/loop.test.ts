@@ -8,7 +8,7 @@ import { MockProvider, parseMockScript } from '../providers/mock.js';
 import { convertTools } from '../tools/convert.js';
 import { InfraError } from '../errors.js';
 import type { ModelProvider } from '../types.js';
-import { estimateTokens } from '../util.js';
+import { countTokens } from '../tokens.js';
 import { runAgentLoop, type AgentLoopOptions } from './loop.js';
 
 const connect = createInMemoryConnector((ctx) => buildFakeServer(ctx.cwd));
@@ -31,7 +31,7 @@ describe('runAgentLoop', () => {
     expect(r.end).toBe('final_answer');
     expect(r.finalAnswer).toBe('all done');
     expect(r.steps).toBe(2);
-    expect(r.contextTokens).toBe(estimateTokens('hello') + estimateTokens('x'.repeat(40)));
+    expect(r.contextTokens).toBe(countTokens('hello') + countTokens('x'.repeat(40)));
     expect(r.costUsd).toBeCloseTo(0.002, 6);
     expect(r.events.map((e) => e.type)).toEqual(['model_call', 'tool_call', 'tool_result', 'tool_call', 'tool_result', 'model_call', 'final_answer']);
     await connection.close();

@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { ProviderError } from '../errors.js';
 import type { ChatRequest, ChatResponse, ModelProvider, ToolCall } from '../types.js';
-import { estimateTokens } from '../util.js';
+import { countTokens } from '../tokens.js';
 
 const StepSchema = z
   .object({
@@ -42,7 +42,7 @@ export class MockProvider implements ModelProvider {
   async chat(req: ChatRequest): Promise<ChatResponse> {
     const prompt = req.messages.find((m) => m.role === 'user')?.content ?? '';
     const step = req.messages.filter((m) => m.role === 'assistant').length;
-    const promptTokens = estimateTokens(req.messages.map((m) => m.content ?? '').join('\n'));
+    const promptTokens = countTokens(req.messages.map((m) => m.content ?? '').join('\n'));
     const entry = this.script.entries.find((e) => prompt.includes(e.match) && (e.model === undefined || e.model === req.model));
     if (!entry) return respond({ content: '(mock: no script entry matches)' }, promptTokens, step);
     const s = entry.steps[step];

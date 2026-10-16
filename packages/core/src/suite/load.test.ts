@@ -49,7 +49,7 @@ describe('parseSuite', () => {
     const s = parseSuite(yaml(), 'demo.yaml');
     expect(s.name).toBe('demo');
     expect(s.source).toBe('demo.yaml');
-    expect(s.defaults).toEqual({ repeats: 3, maxSteps: 12, timeoutS: 120, temperature: 0 });
+    expect(s.defaults).toEqual({ repeats: 3, maxSteps: 12, timeoutS: 120, temperature: 0, toolTimeoutS: 60 });
     expect(s.servers.fake).toEqual({ command: 'node', args: ['server.mjs'], env: {}, headers: {} });
     expect(s.tasks[0]!.maxSteps).toBe(4);
     expect(s.tasks[0]!.graders).toEqual([
@@ -128,6 +128,47 @@ describe('parseSuite', () => {
   // Review Focus 5
   it('rejects invalid regex in answer_matches', () => {
     expect(issuesOf(yaml({ tasks: task('      - { type: answer_matches, pattern: "([a-z" }') }))).toMatch(/invalid regex/);
+  });
+
+  it('parses pinned model objects, the judge block, and tool_timeout_s', () => {
+    const s = parseSuite(
+      yaml({
+        models: [
+          'models:',
+          '  - { id: anthropic/claude-sonnet-5.5, provider: anthropic }',
+          '  - qwen/qwen3.8-flash',
+          'judge: { id: anthropic/claude-haiku-5.5, provider: anthropic }',
+          'defaults: { tool_timeout_s: 30 }',
+        ].join('\n'),
+      }),
+    );
+    expect(s.models).toEqual(['anthropic/claude-sonnet-5.5', 'qwen/qwen3.8-flash']);
+    expect(s.modelPins).toEqual({ 'anthropic/claude-sonnet-5.5': 'anthropic' });
+    expect(s.judge).toEqual({ id: 'anthropic/claude-haiku-5.5', provider: 'anthropic' });
+    expect(s.defaults.toolTimeoutS).toBe(30);
+    expect(s.defaults.repeats).toBe(3);
+  });
+
+  it('defaults to no pins, no judge, and a 60 s tool timeout', () => {
+    const s = parseSuite(yaml());
+    expect(s.modelPins).toEqual({});
+    expect(s.judge).toBeUndefined();
+    expect(s.defaults.toolTimeoutS).toBe(60);
+  });
+
+  it('rejects bad provider slugs, bad judges, and models listed twice in either form', () => {
+    expect(issuesOf(yaml({ models: 'models: [{ id: a/b, provider: "Anthropic Inc" }]' }))).toMatch(/models\.0/);
+    expect(issuesOf(yaml({ models: 'models: [a/b]\njudge: { id: openrouter/auto, provider: x }' }))).toMatch(
+      /judge: "openrouter\/auto" is not pinned/,
+    );
+    expect(issuesOf(yaml({ models: 'models: [a/b]\njudge: { id: haiku }' }))).toMatch(/judge/);
+    expect(issuesOf(yaml({ models: 'models: [a/b, { id: a/b, provider: x }]' }))).toMatch(/models: "a\/b" is listed twice/);
+  });
+
+  it('rejects {fixture} in a task prompt when the suite has no fixture', () => {
+    expect(issuesOf(yaml({ tasks: 'tasks:\n  - { id: t1, prompt: "look in {fixture}" }' }))).toMatch(
+      /tasks\.t1\.prompt uses \{fixture\} but the suite has no fixture/,
+    );
   });
 });
 

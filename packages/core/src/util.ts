@@ -1,11 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { JsonObject } from './types.js';
 
-/** M1 token estimate; replaced by a real tokenizer in M2. */
-export function estimateTokens(text: string): number {
-  return text.length === 0 ? 0 : Math.ceil(text.length / 4);
-}
-
 export function runKey(parts: { suite: string; server: string; model: string; task: string; repeat: number }): string {
   return createHash('sha256')
     .update([parts.suite, parts.server, parts.model, parts.task, String(parts.repeat)].join('\u0000'))

@@ -28,3 +28,19 @@ export class InfraError extends Error {
 export class ConfigError extends Error {
   override readonly name = 'ConfigError';
 }
+
+/** OpenRouter answered 402 (out of credits). Stops the whole run: no new runs, results so far kept, partial. */
+export class OutOfCreditsError extends Error {
+  override readonly name = 'OutOfCreditsError';
+}
+
+/** One MCP tool call exceeded the per-call tool timeout. A model fail (end 'tool_timeout'), never infra. */
+export class ToolTimeoutError extends Error {
+  override readonly name = 'ToolTimeoutError';
+  constructor(
+    readonly tool: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`${tool}: tool call timed out after ${timeoutMs}ms`);
+  }
+}

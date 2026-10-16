@@ -1,7 +1,8 @@
 import { InfraError, ProviderError } from '../errors.js';
 import type { ToolMapping } from '../tools/convert.js';
 import type { ChatMessage, ChatResponse, JsonObject, LoopEnd, McpConnection, ModelProvider, ToolCallResult, TraceEvent } from '../types.js';
-import { estimateTokens, isPlainObject } from '../util.js';
+import { countTokens } from '../tokens.js';
+import { isPlainObject } from '../util.js';
 
 export const SYSTEM_PROMPT =
   'You are an agent completing a task with the tools provided. Use tools when they help. ' +
@@ -123,7 +124,7 @@ export async function runAgentLoop(o: AgentLoopOptions): Promise<AgentRunResult>
         events.push({ type: 'error', step: steps, t: t(), kind: infra.kind, message: infra.message });
         return finish('infra_error', { infraError: infra, failReason: infra.message });
       }
-      const tokens = estimateTokens(result.text);
+      const tokens = countTokens(result.text);
       contextTokens += tokens;
       events.push({
         type: 'tool_result', step: steps, t: t(), callId: call.id, tool,

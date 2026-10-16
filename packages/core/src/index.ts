@@ -1,6 +1,7 @@
 export * from './types.js';
 export * from './errors.js';
 export * from './util.js';
+export { countTokens, TOKENIZER } from './tokens.js';
 export { loadSuite, parseSuite, SuiteError } from './suite/load.js';
 export { runGraders, taskPassed, toolSelectionOk, describeFailures, type GradeContext } from './graders.js';
 export { wilson } from './results/wilson.js';

@@ -18,6 +18,7 @@ const NAME = /^[a-z0-9][a-z0-9_-]*$/;
 const PLACEHOLDER = /<[^<>\s]*>/;
 const MODEL_ID = /^[a-z0-9][\w.-]*\/[\w.:-]+$/i;
 const UNPINNED = /([:-]latest$)|(^openrouter\/auto$)/i;
+const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 
 const serverRef = { server: z.string().optional() };
 const budget = { value: z.number().int().positive(), strict: z.boolean().default(false), ...serverRef };
@@ -56,6 +57,15 @@ const TaskSchema = z
   })
   .strict();
 
+const PinnedModelSchema = z
+  .object({
+    id: z.string().min(1),
+    provider: z.string().regex(SLUG, 'provider must be an OpenRouter provider slug such as "anthropic"'),
+  })
+  .strict();
+
+const DEFAULTS = { repeats: 3, max_steps: 12, timeout_s: 120, temperature: 0, tool_timeout_s: 60 };
+
 const SuiteSchema = z
   .object({
     suite: z.string().regex(NAME, 'suite name must be lowercase letters, digits, - or _'),
@@ -65,22 +75,28 @@ const SuiteSchema = z
       .strict()
       .optional(),
     servers: z.record(z.string().regex(NAME, 'server name must be lowercase letters, digits, - or _'), ServerSchema),
-    models: z.array(z.string()).min(1),
+    models: z.array(z.union([z.string(), PinnedModelSchema])).min(1),
+    judge: PinnedModelSchema.optional(),
     defaults: z
       .object({
-        repeats: z.number().int().min(1).default(3),
-        max_steps: z.number().int().min(1).default(12),
-        timeout_s: z.number().positive().default(120),
-        temperature: z.number().min(0).max(2).default(0),
+        repeats: z.number().int().min(1).default(DEFAULTS.repeats),
+        max_steps: z.number().int().min(1).default(DEFAULTS.max_steps),
+        timeout_s: z.number().positive().default(DEFAULTS.timeout_s),
+        temperature: z.number().min(0).max(2).default(DEFAULTS.temperature),
+        tool_timeout_s: z.number().positive().default(DEFAULTS.tool_timeout_s),
       })
       .strict()
-      .default({ repeats: 3, max_steps: 12, timeout_s: 120, temperature: 0 }),
+      .default(DEFAULTS),
     tasks: z.array(TaskSchema).min(1),
   })
   .strict();
 
 type RawSuite = z.infer<typeof SuiteSchema>;
 type RawGrader = z.infer<typeof GraderSchema>;
+type RawModel = RawSuite['models'][number];
+type RawPinned = z.infer<typeof PinnedModelSchema>;
+
+const modelId = (m: RawModel): string => (typeof m === 'string' ? m : m.id);
 
 export function parseSuite(text: string, source = 'inline'): Suite {
   let raw: unknown;
@@ -106,6 +122,13 @@ export async function loadSuite(path: string): Promise<Suite> {
   return parseSuite(await readFile(path, 'utf8'), path);
 }
 
+function modelIdIssue(id: string, at: string): string | undefined {
+  if (PLACEHOLDER.test(id)) return `${at}: "${id}" contains an unresolved placeholder`;
+  if (!MODEL_ID.test(id)) return `${at}: "${id}" is not a provider/model id`;
+  if (UNPINNED.test(id)) return `${at}: "${id}" is not pinned`;
+  return undefined;
+}
+
 function semanticIssues(s: RawSuite): string[] {
   const issues: string[] = [];
   const servers = new Set(Object.keys(s.servers));
@@ -123,18 +146,22 @@ function semanticIssues(s: RawSuite): string[] {
   }
 
   const seenModels = new Set<string>();
-  for (const m of s.models) {
-    if (PLACEHOLDER.test(m)) issues.push(`models: "${m}" contains an unresolved placeholder`);
-    else if (!MODEL_ID.test(m)) issues.push(`models: "${m}" is not a provider/model id`);
-    else if (UNPINNED.test(m)) issues.push(`models: "${m}" is not pinned`);
+  for (const m of s.models.map(modelId)) {
+    const bad = modelIdIssue(m, 'models');
+    if (bad) issues.push(bad);
     if (seenModels.has(m)) issues.push(`models: "${m}" is listed twice`);
     seenModels.add(m);
+  }
+  if (s.judge) {
+    const bad = modelIdIssue(s.judge.id, 'judge');
+    if (bad) issues.push(bad);
   }
 
   const seenTasks = new Set<string>();
   for (const t of s.tasks) {
     if (seenTasks.has(t.id)) issues.push(`duplicate task id "${t.id}"`);
     seenTasks.add(t.id);
+    if (!s.fixture && t.prompt.includes('{fixture}')) issues.push(`tasks.${t.id}.prompt uses {fixture} but the suite has no fixture`);
     for (const ref of t.servers ?? []) {
       if (!servers.has(ref)) issues.push(`tasks.${t.id}.servers: unknown server "${ref}"`);
     }
@@ -179,18 +206,22 @@ function toSuite(s: RawSuite, source: string): Suite {
     ...(t.timeout_s !== undefined ? { timeoutS: t.timeout_s } : {}),
     graders: t.graders.map(toGrader),
   }));
+  const pinned = s.models.filter((m): m is RawPinned => typeof m !== 'string');
   return {
     name: s.suite,
     version: s.version,
     source,
     ...(s.fixture ? { fixture: s.fixture } : {}),
     servers,
-    models: s.models,
+    models: s.models.map(modelId),
+    modelPins: Object.fromEntries(pinned.map((m) => [m.id, m.provider])),
+    ...(s.judge ? { judge: { id: s.judge.id, provider: s.judge.provider } } : {}),
     defaults: {
       repeats: s.defaults.repeats,
       maxSteps: s.defaults.max_steps,
       timeoutS: s.defaults.timeout_s,
       temperature: s.defaults.temperature,
+      toolTimeoutS: s.defaults.tool_timeout_s,
     },
     tasks,
   };
