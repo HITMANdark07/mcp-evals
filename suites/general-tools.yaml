@@ -1,0 +1,173 @@
+# General tool use: the filesystem and memory MCP servers on the Hono fixture.
+# Each task targets exactly one server. At most 3 tasks use llm_judge (2 do).
+suite: general-tools
+version: 1
+fixture:
+  git: https://github.com/honojs/hono
+  ref: 08a023cbfde55b434fb0fb30fae35d42e4bf20aa
+servers:
+  filesystem:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem@1.0.0", "{fixture}"]
+  memory:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-memory@1.0.0"]
+    env: { MEMORY_FILE_PATH: "{fixture}/.memory.json" }
+models:
+  - { id: anthropic/claude-sonnet-5.5, provider: anthropic }
+  - { id: openai/gpt-6.1-sol, provider: openai }
+  - { id: google/gemini-3.8-flash, provider: google-ai-studio }
+  - { id: qwen/qwen3.8-flash, provider: alibaba }
+judge: { id: anthropic/claude-haiku-5.5, provider: anthropic }
+defaults: { repeats: 2, max_steps: 12, timeout_s: 180, temperature: 0, tool_timeout_s: 60 }
+tasks:
+  # ---- filesystem: read and answer --------------------------------------------
+  - id: package-json
+    servers: [filesystem]
+    prompt: >-
+      The repository is at {fixture}. What are the `name`, `version` and `license` fields of its package.json?
+      Reply with only a JSON object that has exactly the keys "name", "version" and "license".
+    graders:
+      - type: answer_json_schema
+        schema:
+          type: object
+          required: [name, version, license]
+          additionalProperties: false
+          properties:
+            name: { type: string, enum: [hono] }
+            version: { type: string, enum: ["4.13.13"] }
+            license: { type: string, enum: [MIT] }
+
+  - id: middleware-list
+    servers: [filesystem]
+    prompt: >-
+      The repository is at {fixture}. List the name of every directory directly inside src/middleware.
+      Reply with only a JSON object of the form {"middleware": ["name", ...]}.
+    graders:
+      - type: answer_json_schema
+        schema:
+          type: object
+          required: [middleware]
+          additionalProperties: false
+          properties:
+            middleware: { type: array, minItems: 27, items: { type: string } }
+      - { type: answer_contains_all, values: [basic-auth, context-storage, jsx-renderer, method-not-allowed, trailing-slash] }
+
+  - id: combine-exports
+    servers: [filesystem]
+    prompt: >-
+      The repository is at {fixture}. Which functions does src/middleware/combine/index.ts export?
+      Reply with only a JSON object of the form {"exports": ["name", ...]}.
+    graders:
+      - type: answer_json_schema
+        schema:
+          type: object
+          required: [exports]
+          additionalProperties: false
+          properties:
+            exports: { type: array, minItems: 3, items: { type: string, enum: [some, every, except] } }
+      - { type: answer_contains_all, values: [some, every, except], case_sensitive: true }
+
+  - id: timeout-default
+    servers: [filesystem]
+    prompt: >-
+      The repository is at {fixture}. When Hono's timeout middleware (src/middleware/timeout/index.ts) fires and
+      no custom exception was given, which HTTP status code and message does it respond with?
+    graders:
+      - { type: answer_contains_all, values: ["504", Gateway Timeout] }
+
+  # ---- filesystem: file edits ---------------------------------------------------
+  - id: write-notes
+    servers: [filesystem]
+    prompt: >-
+      The repository is at {fixture}. Create a new file at {fixture}/EVAL_NOTES.md whose entire content is the
+      single line: reviewed-by: mcp-evals
+    graders:
+      - { type: tool_called, tool: write_file }
+      - { type: fs_state, path: EVAL_NOTES.md, contains: "reviewed-by: mcp-evals" }
+
+  - id: edit-powered-by
+    servers: [filesystem]
+    prompt: >-
+      The repository is at {fixture}. In src/middleware/powered-by/index.ts, change the value the middleware falls
+      back to for the X-Powered-By header from 'Hono' to 'Hono-Eval'. Do not change any other file.
+    graders:
+      - { type: fs_state, path: src/middleware/powered-by/index.ts, contains: "options?.serverName ?? 'Hono-Eval'" }
+      - { type: fs_state, path: src/hono.ts, unchanged: true }
+      - { type: fs_state, path: src/middleware/powered-by/index.test.ts, unchanged: true }
+
+  - id: move-migration-guide
+    servers: [filesystem]
+    prompt: >-
+      The repository is at {fixture}. Move docs/MIGRATION.md to docs/archive/MIGRATION.md, creating the
+      docs/archive directory if needed. Do not change the file's content.
+    graders:
+      - { type: tool_called, tool: move_file }
+      - { type: fs_state, path: docs/archive/MIGRATION.md, contains: "# Migration Guide" }
+      - { type: fs_state, path: docs/MIGRATION.md, exists: false }
+
+  # ---- filesystem: open-ended (judged) ----------------------------------------
+  - id: explain-smart-router
+    servers: [filesystem]
+    prompt: >-
+      The repository is at {fixture}. Read src/router/smart-router/router.ts and explain in 3 to 5 sentences how
+      SmartRouter decides which of its routers to use, and what happens on later calls to match().
+    graders:
+      - { type: answer_contains_all, values: [UnsupportedPathError] }
+      - type: llm_judge
+        rubric: >-
+          The answer must say that SmartRouter tries its routers in order, registering all collected routes on each;
+          that a router throwing UnsupportedPathError is skipped in favour of the next one; that the first router that
+          succeeds becomes the only router; and that later match() calls go straight to that router's match (it
+          replaces its own match method). Fail answers that invent behaviour not in the file.
+
+  # ---- memory: multi-step -----------------------------------------------------
+  - id: memory-store-graph
+    servers: [memory]
+    prompt: >-
+      Using the memory tools, record this knowledge graph. Entities (entity type "router"): SmartRouter,
+      RegExpRouter, TrieRouter. Relations: SmartRouter "tries" RegExpRouter, and SmartRouter "tries" TrieRouter.
+      When it is stored, reply with the word: stored
+    graders:
+      - { type: tool_called, tool: create_entities }
+      - { type: tool_called, tool: create_relations }
+      - { type: fs_state, path: .memory.json, contains: '"name":"SmartRouter"' }
+      - { type: fs_state, path: .memory.json, contains: '"name":"TrieRouter"' }
+      - { type: fs_state, path: .memory.json, contains: '"relationType":"tries"' }
+
+  - id: memory-observations
+    servers: [memory]
+    prompt: >-
+      Using the memory tools: create an entity named "hono" of type "project" with the observations
+      "MIT licensed" and "version 4.13.13". Then add a third observation, "uses SmartRouter by default", to that
+      same entity. Finally, read the entity back from memory and reply with all of its observations.
+    graders:
+      - { type: tool_called, tool: add_observations }
+      - { type: fs_state, path: .memory.json, contains: "uses SmartRouter by default" }
+      - { type: answer_contains_all, values: [MIT licensed, version 4.13.13, uses SmartRouter by default] }
+
+  - id: memory-delete
+    servers: [memory]
+    prompt: >-
+      Using the memory tools: create three entities of type "test" named "alpha", "beta" and "gamma". Then delete
+      "beta". Then read the whole graph back and reply with the names of the entities that remain.
+    graders:
+      - { type: tool_called, tool: delete_entities }
+      - { type: tool_called, tool: read_graph }
+      - { type: fs_state, path: .memory.json, contains: '"name":"gamma"' }
+      - { type: answer_contains_all, values: [alpha, gamma] }
+
+  - id: memory-team-graph
+    servers: [memory]
+    prompt: >-
+      Model this team in the memory knowledge graph, with people and teams as entities and the relationships as
+      relations: Ana leads the Router team. Ben and Chen are members of the Router team. Chen also maintains the
+      cors middleware. Then describe, in plain sentences, the graph you stored.
+    graders:
+      - { type: tool_called, tool: create_relations }
+      - { type: fs_state, path: .memory.json, contains: '"name":"Chen"' }
+      - type: llm_judge
+        rubric: >-
+          The answer must describe a stored graph in which Ana leads the Router team, Ben and Chen are members of the
+          Router team, and Chen maintains the cors middleware. It must not add people, teams or relationships that
+          were not given.
