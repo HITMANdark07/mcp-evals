@@ -66,6 +66,9 @@ export class RunCache {
     private current: RunManifest,
   ) {}
 
+  /** Manifest writes run one at a time, each persisting the latest total, so an older snapshot never lands last. */
+  private writeQueue: Promise<void> = Promise.resolve();
+
   get manifest(): RunManifest {
     return this.current;
   }
@@ -90,7 +93,12 @@ export class RunCache {
       ...init.identity,
       unrecordedSpendUsd: 0,
     });
-    await writeFile(cache.recordsPath, '');
+    try {
+      await writeFile(cache.recordsPath, '', { flag: 'wx' });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new ConfigError(`run cache already exists for run "${init.runId}" in ${dir}`);
+      throw e;
+    }
     await writeAtomic(cache.manifestPath, `${JSON.stringify(cache.current, null, 2)}\n`);
     return cache;
   }
@@ -177,9 +185,13 @@ export class RunCache {
   }
 
   async addUnrecordedSpend(usd: number): Promise<void> {
-    if (!(usd > 0)) return;
+    if (!Number.isFinite(usd) || usd < 0) throw new RangeError('unrecorded spend must be a finite number >= 0');
+    if (usd === 0) return;
     this.current = { ...this.current, unrecordedSpendUsd: this.current.unrecordedSpendUsd + usd };
-    await writeAtomic(this.manifestPath, `${JSON.stringify(this.current, null, 2)}\n`);
+    const write = this.writeQueue.then(() => writeAtomic(this.manifestPath, `${JSON.stringify(this.current, null, 2)}\n`));
+    // Keep the queue alive after a failed write; the caller still sees that write's error.
+    this.writeQueue = write.catch(() => undefined);
+    await write;
   }
 }
 
