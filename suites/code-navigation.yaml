@@ -1,0 +1,139 @@
+# NeatCode vs. the filesystem MCP server on identical code-navigation tasks.
+# Fixture: Hono v4.13.13. Answer keys are verified by packages/core/test/suite-code-navigation.test.ts.
+suite: code-navigation
+version: 1
+fixture:
+  git: https://github.com/honojs/hono
+  ref: 08a023cbfde55b434fb0fb30fae35d42e4bf20aa
+servers:
+  neatcode:
+    command: npx
+    args: ["-y", "@neatcodeai/mcp@0.1.4"]
+    setup: "npx -y @neatcodeai/cli@0.1.4 init"
+  filesystem:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem@1.0.0", "{fixture}"]
+models:
+  - { id: anthropic/claude-sonnet-5.5, provider: anthropic }
+  - { id: openai/gpt-6.1-sol, provider: openai }
+  - { id: google/gemini-3.8-flash, provider: google-ai-studio }
+  - { id: qwen/qwen3.8-flash, provider: alibaba }
+defaults: { repeats: 2, max_steps: 12, timeout_s: 180, temperature: 0, tool_timeout_s: 60 }
+tasks:
+  - id: router-implementations
+    prompt: >-
+      The repository is at {fixture}. Which classes under src/ implement the `Router` interface
+      declared in src/router.ts? List every class together with the repo-relative path of the file that defines it.
+    graders:
+      - type: answer_contains_all
+        values:
+          - LinearRouter
+          - PatternRouter
+          - PreparedRegExpRouter
+          - RegExpRouter
+          - SmartRouter
+          - TrieRouter
+          - src/router/linear-router/router.ts
+          - src/router/pattern-router/router.ts
+          - src/router/reg-exp-router/prepared-router.ts
+          - src/router/reg-exp-router/router.ts
+          - src/router/smart-router/router.ts
+          - src/router/trie-router/router.ts
+
+  - id: compose-callers
+    prompt: >-
+      The repository is at {fixture}. Which functions or methods in non-test files under src/ call `compose`
+      from src/compose.ts? For each call give the repo-relative file path and the name of the enclosing function or method.
+    graders:
+      - { type: answer_contains_all, values: [src/hono-base.ts, src/middleware/combine/index.ts, route, dispatch, every] }
+
+  - id: strict-path
+    prompt: >-
+      The repository is at {fixture}. When a Hono app is created with `strict: false`, which function extracts the
+      request path, and in which file (repo-relative path) is that function defined?
+    graders:
+      - { type: answer_contains_all, values: [getPathNoStrict, src/utils/url.ts] }
+
+  - id: preset-routers
+    prompt: >-
+      The repository is at {fixture}. Which router does each Hono entry point construct by default:
+      src/hono.ts, src/preset/quick.ts and src/preset/tiny.ts? Name the router classes used by each.
+    graders:
+      - { type: answer_contains_all, values: [SmartRouter, RegExpRouter, TrieRouter, LinearRouter, PatternRouter] }
+
+  - id: cookie-helper-importers
+    prompt: >-
+      The repository is at {fixture}. Which non-test files under src/ import from the cookie helper module
+      src/helper/cookie/index.ts? List their repo-relative paths.
+    graders:
+      - type: answer_contains_all
+        values:
+          - src/middleware/jwk/jwk.ts
+          - src/middleware/jwt/jwt.ts
+          - src/middleware/language/language.ts
+          - src/validator/validator.ts
+
+  - id: timing-safe-callers
+    prompt: >-
+      The repository is at {fixture}. Which middleware call `timingSafeEqual` from src/utils/buffer.ts?
+      Give the repo-relative file path and the name of the exported middleware function for each.
+    graders:
+      - { type: answer_contains_all, values: [src/middleware/basic-auth/index.ts, src/middleware/bearer-auth/index.ts, basicAuth, bearerAuth] }
+
+  - id: rename-check-optional-parameter
+    prompt: >-
+      The repository is at {fixture}. If `checkOptionalParameter` in src/utils/url.ts were renamed, which other
+      non-test files under src/ would have to change? List their repo-relative paths.
+    graders:
+      - type: answer_contains_all
+        values:
+          - src/router/linear-router/router.ts
+          - src/router/reg-exp-router/router.ts
+          - src/router/trie-router/router.ts
+
+  - id: two-merge-paths
+    prompt: >-
+      The repository is at {fixture}. There are two different functions named `mergePath` under src/. Where is
+      each one defined, and which non-test file under src/ uses each? Give repo-relative paths.
+    graders:
+      - { type: answer_contains_all, values: [src/utils/url.ts, src/client/utils.ts, src/hono-base.ts, src/client/client.ts] }
+
+  - id: fetch-to-compose
+    prompt: >-
+      The repository is at {fixture}. Trace a request from `app.fetch` to the point where the matched handlers are
+      composed when more than one handler matches. Name each function or method in call order and the repo-relative
+      file it is defined in.
+    graders:
+      - { type: answer_contains_all, values: [fetch, dispatch, match, compose, src/hono-base.ts, src/compose.ts] }
+
+  - id: default-error-handler
+    prompt: >-
+      The repository is at {fixture}. Where is Hono's default error handler defined (function name and
+      repo-relative file), how does it turn an `HTTPException` into a response (which method does it call, and in
+      which file is that method defined), and what status does it return for any other error?
+    graders:
+      - { type: answer_contains_all, values: [errorHandler, getResponse, src/hono-base.ts, src/http-exception.ts, "500"] }
+
+  - id: http-exception-throwers
+    prompt: >-
+      The repository is at {fixture}. Which middleware under src/middleware/ throw an `HTTPException`?
+      List the repo-relative path of every non-test file that does.
+    graders:
+      - type: answer_contains_all
+        values:
+          - src/middleware/basic-auth/index.ts
+          - src/middleware/bearer-auth/index.ts
+          - src/middleware/body-limit/index.ts
+          - src/middleware/csrf/index.ts
+          - src/middleware/ip-restriction/index.ts
+          - src/middleware/jwk/jwk.ts
+          - src/middleware/jwt/jwt.ts
+          - src/middleware/timeout/index.ts
+
+  - id: smart-router-fallback
+    prompt: >-
+      The repository is at {fixture}. SmartRouter (src/router/smart-router/router.ts) catches one specific error
+      to fall back to its next router. What is that error class, in which file is it defined, and which router
+      classes under src/router/ throw it?
+    graders:
+      - { type: answer_contains_all, values: [UnsupportedPathError, src/router.ts, LinearRouter, PatternRouter, RegExpRouter] }
