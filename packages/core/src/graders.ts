@@ -62,8 +62,11 @@ export function taskPassed(results: GraderResult[], end: LoopEnd | null): boolea
   return results.filter((r) => !r.skipped && !r.budget).every((r) => r.pass);
 }
 
-export function toolSelectionOk(results: GraderResult[], end: LoopEnd | null): boolean | null {
-  if (end === 'invalid_tool_call') return false;
+/**
+ * Whether the run's tool graders passed; null when the task has none. An unknown-tool call (`end: invalid_tool_call`)
+ * fails the run and is reported separately as `invalidToolCallRate`, so it does not count here on its own.
+ */
+export function toolSelectionOk(results: GraderResult[]): boolean | null {
   const tool = results.filter((r) => !r.skipped && TOOL_TYPES.has(r.type));
   if (tool.length === 0) return null;
   return tool.every((r) => r.pass);

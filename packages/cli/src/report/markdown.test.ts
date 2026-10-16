@@ -4,7 +4,7 @@ import { formatMarkdown } from './markdown.js';
 
 describe('formatMarkdown', () => {
   it('renders a heading, pins, versions, one row per cell, and incomplete cells', () => {
-    const r = results([cell({ server: 'neatcode', model: 'acme/a' }), cell({ server: 'filesystem', model: 'acme/a', runs: 3, complete: false })], {
+    const r = results([cell({ server: 'neatcode', model: 'acme/a' }), cell({ server: 'filesystem', model: 'acme/a', runs: 3, complete: false, invalidToolCallRate: 0.25 })], {
       partial: true,
     });
     const lines = formatMarkdown({ ...r, harnessCommit: 'abc1234' }).split('\n');
@@ -14,9 +14,9 @@ describe('formatMarkdown', () => {
     expect(lines).toContain('Fixture: https://github.com/honojs/hono @ `08a023cbfde55b434fb0fb30fae35d42e4bf20aa`');
     expect(lines).toContain('Models: acme/a (acme)');
     expect(lines).toContain('Servers: neatcode 0.1.4, filesystem');
-    expect(lines).toContain('| Server | Model | Runs | Success | Success w/ errors | 95% CI | Tool acc. | Context tok. (median) | Provider prompt tok. (median) | Steps | $/task | Errors |');
-    expect(lines).toContain('| neatcode | acme/a | 4/4 | 75% | 75% | [30–95%] | – | 1000 | 5000 | 3.0 | $0.0100 | 0% |');
-    expect(lines).toContain('| filesystem | acme/a | 3/4 | 75% | 75% | [30–95%] | – | 1000 | 5000 | 3.0 | $0.0100 | 0% |');
+    expect(lines).toContain('| Server | Model | Runs | Success | Success w/ errors | 95% CI | Tool acc. | Invalid tool calls | Context tok. (median) | Provider prompt tok. (median) | Steps | $/task | Errors |');
+    expect(lines).toContain('| neatcode | acme/a | 4/4 | 75% | 75% | [30–95%] | – | 0% | 1000 | 5000 | 3.0 | $0.0100 | 0% |');
+    expect(lines).toContain('| filesystem | acme/a | 3/4 | 75% | 75% | [30–95%] | – | 25% | 1000 | 5000 | 3.0 | $0.0100 | 0% |');
     expect(lines).toContain('Incomplete cells (not every planned run finished): filesystem/acme/a');
   });
 });

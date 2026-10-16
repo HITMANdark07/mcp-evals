@@ -27,7 +27,7 @@ function upgradeV1(v1: ResultsV1): Results {
       ...s,
       servers: Object.fromEntries(Object.entries(s.servers).map(([name, srv]) => [name, { ...srv, args: null, setup: null, version: null }])),
       judge: null,
-      cells: s.cells.map((c) => ({ ...c, plannedRuns: null, complete: false, providerPromptTokensPerTask: null, successRateWithErrors: null })),
+      cells: s.cells.map((c) => ({ ...c, plannedRuns: null, complete: false, providerPromptTokensPerTask: null, successRateWithErrors: null, invalidToolCallRate: null })),
     })),
   };
 }

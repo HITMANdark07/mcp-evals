@@ -4,7 +4,7 @@ export type Cell = Results['suites'][number]['cells'][number];
 
 export function cell(over: Partial<Cell> & Pick<Cell, 'server' | 'model'>): Cell {
   return {
-    runs: 4, plannedRuns: 4, complete: true, successRate: 0.75, successRateWithErrors: 0.75, successCi95: [0.3006, 0.9544], toolAccuracy: null,
+    runs: 4, plannedRuns: 4, complete: true, successRate: 0.75, successRateWithErrors: 0.75, successCi95: [0.3006, 0.9544], toolAccuracy: null, invalidToolCallRate: 0,
     contextTokensPerTask: { mean: 1000, median: 1000 }, providerPromptTokensPerTask: { mean: 5000, median: 5000 },
     stepsPerTask: 3, latencyMsP50: 1200, costUsdPerTask: 0.01, errorRate: 0, tasks: [],
     ...over,

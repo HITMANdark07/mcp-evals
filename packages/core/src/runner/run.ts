@@ -359,7 +359,7 @@ function makeRecord(
     ...base,
     ...summary,
     ...(serverVersion !== undefined ? { serverVersion } : {}),
-    toolSelectionOk: outcome === 'error' ? null : toolSelectionOk(graders, result?.end ?? null),
+    toolSelectionOk: outcome === 'error' ? null : toolSelectionOk(graders),
     trace: { runKey: key, ...base, ...summary, events: result?.events ?? [], serverStderr },
   };
 }

@@ -1,7 +1,7 @@
 import type { Results } from '@mcp-evals/core';
 import { ci, isIncomplete, pct, runsText, usd } from './table.js';
 
-const HEADER = '| Server | Model | Runs | Success | Success w/ errors | 95% CI | Tool acc. | Context tok. (median) | Provider prompt tok. (median) | Steps | $/task | Errors |';
+const HEADER = '| Server | Model | Runs | Success | Success w/ errors | 95% CI | Tool acc. | Invalid tool calls | Context tok. (median) | Provider prompt tok. (median) | Steps | $/task | Errors |';
 
 export function formatMarkdown(r: Results): string {
   const out: string[] = [
@@ -25,6 +25,7 @@ export function formatMarkdown(r: Results): string {
         c.successRateWithErrors === null ? '–' : pct(c.successRateWithErrors),
         ci(c.successCi95),
         c.toolAccuracy === null ? '–' : pct(c.toolAccuracy),
+        c.invalidToolCallRate === null ? '–' : pct(c.invalidToolCallRate),
         String(Math.round(c.contextTokensPerTask.median)),
         c.providerPromptTokensPerTask === null ? '–' : String(Math.round(c.providerPromptTokensPerTask.median)),
         c.stepsPerTask.toFixed(1),
