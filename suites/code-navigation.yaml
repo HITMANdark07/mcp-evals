@@ -30,7 +30,6 @@ tasks:
           - LinearRouter
           - PatternRouter
           - PreparedRegExpRouter
-          - RegExpRouter
           - SmartRouter
           - TrieRouter
           - src/router/linear-router/router.ts
@@ -39,13 +38,26 @@ tasks:
           - src/router/reg-exp-router/router.ts
           - src/router/smart-router/router.ts
           - src/router/trie-router/router.ts
+      # RegExpRouter on its own, not as part of PreparedRegExpRouter.
+      - { type: answer_matches, pattern: '\bRegExpRouter\b' }
+      # Decoys: helper classes next to the routers that do not implement Router.
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/router/trie-router/node\.ts)[\s\S]*$' }
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/router/reg-exp-router/trie\.ts)[\s\S]*$' }
 
   - id: compose-callers
     prompt: >-
       The repository is at {fixture}. Which functions or methods in non-test files under src/ call `compose`
       from src/compose.ts? For each call give the repo-relative file path and the name of the enclosing function or method.
     graders:
-      - { type: answer_contains_all, values: [src/hono-base.ts, src/middleware/combine/index.ts, route, dispatch, every] }
+      - { type: answer_contains_all, values: [src/hono-base.ts, src/middleware/combine/index.ts] }
+      - { type: answer_matches, pattern: '\bdispatch\b' }
+      # The route method, named as code (not the English word "route").
+      - type: answer_matches
+        pattern: '`(?:[\w#]+\.)?route(?:\(\))?`|\.route\b|\broute\s*[<(]|\broute\b\s+method|\bmethod\s+\W?route\b|\broute\b\W{0,2}\s*[—–|]|\|\s*\W{0,2}route\b|(?:^|\n)\s*(?:[-*]|\d+\.)\s+\W{0,2}route\b'
+      # every, next to the file that defines it (not the English word "every").
+      - { type: answer_matches, pattern: 'combine/index\.ts[\s\S]{0,60}\bevery\b|\bevery\b[\s\S]{0,60}combine/index\.ts|`every(?:\(\))?`|\bevery\(|\bfunction every\b' }
+      # Decoy: composeRef is a different function.
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/jsx/dom/intrinsic-element/components\.ts)[\s\S]*$' }
 
   - id: strict-path
     prompt: >-
@@ -57,9 +69,12 @@ tasks:
   - id: preset-routers
     prompt: >-
       The repository is at {fixture}. Which router does each Hono entry point construct by default:
-      src/hono.ts, src/preset/quick.ts and src/preset/tiny.ts? Name the router classes used by each.
+      src/hono.ts, src/preset/quick.ts and src/preset/tiny.ts? Name the router classes used by each. Answer with
+      one line per entry point, in the form `<repo-relative path>: <router classes>`.
     graders:
-      - { type: answer_contains_all, values: [SmartRouter, RegExpRouter, TrieRouter, LinearRouter, PatternRouter] }
+      - { type: answer_matches, pattern: 'src/hono\.ts(?=[^\n]*\bSmartRouter\b)(?=[^\n]*\bRegExpRouter\b)(?=[^\n]*\bTrieRouter\b)' }
+      - { type: answer_matches, pattern: 'src/preset/quick\.ts(?=[^\n]*\bSmartRouter\b)(?=[^\n]*\bLinearRouter\b)(?=[^\n]*\bTrieRouter\b)' }
+      - { type: answer_matches, pattern: 'src/preset/tiny\.ts(?=[^\n]*\bPatternRouter\b)' }
 
   - id: cookie-helper-importers
     prompt: >-
@@ -72,6 +87,9 @@ tasks:
           - src/middleware/jwt/jwt.ts
           - src/middleware/language/language.ts
           - src/validator/validator.ts
+      # Decoys: client.ts imports the cookie *utils*; the cache middleware only handles Set-Cookie headers.
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/client/client\.ts)[\s\S]*$' }
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/middleware/cache/index\.ts)[\s\S]*$' }
 
   - id: timing-safe-callers
     prompt: >-
@@ -79,6 +97,9 @@ tasks:
       Give the repo-relative file path and the name of the exported middleware function for each.
     graders:
       - { type: answer_contains_all, values: [src/middleware/basic-auth/index.ts, src/middleware/bearer-auth/index.ts, basicAuth, bearerAuth] }
+      # Decoys: other auth middleware that do not call it.
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/middleware/jwt/jwt\.ts)[\s\S]*$' }
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/middleware/jwk/jwk\.ts)[\s\S]*$' }
 
   - id: rename-check-optional-parameter
     prompt: >-
@@ -90,6 +111,10 @@ tasks:
           - src/router/linear-router/router.ts
           - src/router/reg-exp-router/router.ts
           - src/router/trie-router/router.ts
+      # Decoys: node.ts imports other helpers from src/utils/url.ts; these routers do not use it.
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/router/trie-router/node\.ts)[\s\S]*$' }
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/router/pattern-router/router\.ts)[\s\S]*$' }
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/router/reg-exp-router/prepared-router\.ts)[\s\S]*$' }
 
   - id: two-merge-paths
     prompt: >-
@@ -104,7 +129,12 @@ tasks:
       composed when more than one handler matches. Name each function or method in call order and the repo-relative
       file it is defined in.
     graders:
-      - { type: answer_contains_all, values: [fetch, dispatch, match, compose, src/hono-base.ts, src/compose.ts] }
+      - { type: answer_contains_all, values: [src/hono-base.ts, src/compose.ts] }
+      # In call order: fetch → dispatch → match → compose.
+      - { type: answer_matches, pattern: '\bfetch\b[\s\S]*\bdispatch\b[\s\S]*\bmatch\b[\s\S]*\bcompose\b' }
+      # The router's match method and the compose function, named as code (not the English words).
+      - { type: answer_matches, pattern: '\.match\b|\bmatch\s*\(|`match(?:\(\))?`|\bmatch\b\s+method|[Rr]outer[^\n]{0,40}\bmatch\b' }
+      - { type: answer_matches, pattern: '\bcompose\s*\(|`compose(?:\(\))?`|\bcompose\b[^\n]{0,120}src/compose\.ts|src/compose\.ts[^\n]{0,120}\bcompose\b' }
 
   - id: default-error-handler
     prompt: >-
@@ -112,11 +142,14 @@ tasks:
       repo-relative file), how does it turn an `HTTPException` into a response (which method does it call, and in
       which file is that method defined), and what status does it return for any other error?
     graders:
-      - { type: answer_contains_all, values: [errorHandler, getResponse, src/hono-base.ts, src/http-exception.ts, "500"] }
+      - { type: answer_contains_all, values: [src/hono-base.ts, src/http-exception.ts] }
+      - { type: answer_matches, pattern: '\berrorHandler\b' }
+      - { type: answer_matches, pattern: '\bgetResponse\b' }
+      - { type: answer_matches, pattern: '\b500\b' }
 
   - id: http-exception-throwers
     prompt: >-
-      The repository is at {fixture}. Which middleware under src/middleware/ throw an `HTTPException`?
+      The repository is at {fixture}. Which middleware under src/middleware/ throw (or reject with) an `HTTPException`?
       List the repo-relative path of every non-test file that does.
     graders:
       - type: answer_contains_all
@@ -129,6 +162,9 @@ tasks:
           - src/middleware/jwk/jwk.ts
           - src/middleware/jwt/jwt.ts
           - src/middleware/timeout/index.ts
+      # Decoys: these answer with an error response, but never via HTTPException.
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/middleware/cors/index\.ts)[\s\S]*$' }
+      - { type: answer_matches, pattern: '^(?![\s\S]*src/middleware/method-not-allowed/index\.ts)[\s\S]*$' }
 
   - id: smart-router-fallback
     prompt: >-
@@ -136,4 +172,6 @@ tasks:
       to fall back to its next router. What is that error class, in which file is it defined, and which router
       classes under src/router/ throw it?
     graders:
-      - { type: answer_contains_all, values: [UnsupportedPathError, src/router.ts, LinearRouter, PatternRouter, RegExpRouter] }
+      - { type: answer_contains_all, values: [UnsupportedPathError, src/router.ts, LinearRouter, PatternRouter] }
+      # RegExpRouter on its own, not as part of PreparedRegExpRouter (which never throws it).
+      - { type: answer_matches, pattern: '\bRegExpRouter\b' }
