@@ -41,8 +41,9 @@ export class OpenRouterProvider implements ModelProvider {
   #generatedIds = 0;
 
   constructor(o: OpenRouterOptions) {
-    if (o.apiKey.trim() === '') throw new ConfigError('OPENROUTER_API_KEY is empty');
-    this.#endpoint = endpoint(o);
+    const apiKey = o.apiKey.trim();
+    if (apiKey === '') throw new ConfigError('OPENROUTER_API_KEY is empty');
+    this.#endpoint = endpoint({ ...o, apiKey });
     this.#prices = o.prices ?? {};
     this.#now = o.now ?? Date.now;
   }
@@ -79,16 +80,22 @@ export class OpenRouterProvider implements ModelProvider {
       throw new ProviderError(`OpenRouter: generation interrupted: ${isPlainObject(error) ? messageOf(error) : 'unknown error'}`, true, 502);
     }
     const rawCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
-    const usage = isPlainObject(json.usage) ? json.usage : {};
+    const usageObj = isPlainObject(json.usage) ? json.usage : undefined;
+    const usage = usageObj ?? {};
     const promptTokens = numberOr(usage.prompt_tokens, 0);
     const completionTokens = numberOr(usage.completion_tokens, 0);
     const price = this.#prices[model];
-    const costUsd =
-      typeof usage.cost === 'number' && Number.isFinite(usage.cost)
-        ? usage.cost
-        : price
-          ? promptTokens * price.prompt + completionTokens * price.completion
-          : 0;
+    const reportedCost = typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0 ? usage.cost : undefined;
+    let costUsd: number;
+    if (reportedCost !== undefined) costUsd = reportedCost;
+    else if (usageObj && price && validPrice(price.prompt) !== null && validPrice(price.completion) !== null) {
+      costUsd = promptTokens * price.prompt + completionTokens * price.completion;
+    } else {
+      throw new ProviderError(
+        `cannot determine cost for ${model}: response had no usage.cost and no catalog price is known; refusing to continue without budget accounting`,
+        false,
+      );
+    }
     const servedBy = json.provider;
     return {
       content: typeof msg.content === 'string' ? msg.content : null,
@@ -124,12 +131,12 @@ export async function fetchModelCatalog(o: { apiKey: string; baseUrl?: string; r
     if (typeof id !== 'string') continue;
     const params = Array.isArray(m.supported_parameters) ? m.supported_parameters : [];
     const pricing = isPlainObject(m.pricing) ? m.pricing : {};
-    const prompt = Number(pricing.prompt);
-    const completion = Number(pricing.completion);
+    const prompt = validPrice(pricing.prompt);
+    const completion = validPrice(pricing.completion);
     out.set(id, {
       id,
       supportsTools: params.includes('tools'),
-      price: Number.isFinite(prompt) && Number.isFinite(completion) ? { prompt, completion } : null,
+      price: prompt !== null && completion !== null ? { prompt, completion } : null,
     });
   }
   return out;
@@ -182,7 +189,7 @@ async function request(ep: Endpoint, method: 'GET' | 'POST', path: string, body:
   }
   if (status < 200 || status >= 300) {
     const err = isPlainObject(json) ? json.error : undefined;
-    const message = isPlainObject(err) ? messageOf(err) : text.slice(0, 300) || '(empty body)';
+    const message = isPlainObject(err) ? messageOf(err) : redact(text).slice(0, 300) || '(empty body)';
     const classified = classify(status, redact(message));
     throw classified;
   }
@@ -203,6 +210,13 @@ function classify(status: number, message: string): Error {
 
 function messageOf(err: JsonObject): string {
   return typeof err.message === 'string' ? err.message : 'unknown error';
+}
+
+/** A per-token price is valid only if it is a finite number >= 0 (null, "", non-numeric and negative mean "no price"). */
+function validPrice(v: unknown): number | null {
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+  const n = typeof v === 'number' || typeof v === 'string' ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 function numberOr(v: unknown, fallback: number): number {

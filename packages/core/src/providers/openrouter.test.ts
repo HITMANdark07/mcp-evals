@@ -159,6 +159,34 @@ describe('OpenRouterProvider.chat', () => {
     expect((await priced.chat(req())).usage.costUsd).toBe(0);
   });
 
+  it('refuses to continue when cost cannot be determined (no usage.cost and no price, or no usage at all)', async () => {
+    const { fake, provider } = await setup();
+    const noCost = completion({ content: 'ok' }, { prompt_tokens: 10, completion_tokens: 1 });
+    const noUsage = completion({ content: 'ok' }) as Record<string, unknown>;
+    delete noUsage.usage;
+    fake.enqueue({ json: noCost }, { json: noUsage });
+    for (let i = 0; i < 2; i++) {
+      const err = await provider.chat(req()).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ProviderError);
+      expect(err).toMatchObject({
+        retryable: false,
+        message: 'cannot determine cost for acme/model-a: response had no usage.cost and no catalog price is known; refusing to continue without budget accounting',
+      });
+    }
+    const priced = new OpenRouterProvider({ apiKey: KEY, baseUrl: fake.baseUrl, prices: { 'acme/model-a': { prompt: 0.000001, completion: 0.000002 } } });
+    fake.enqueue({ json: noUsage }, { json: completion({ content: 'ok' }, { prompt_tokens: 10, completion_tokens: 1, cost: -1 }) });
+    expect(await priced.chat(req()).catch((e: unknown) => e)).toMatchObject({ retryable: false, name: 'ProviderError' });
+    expect((await priced.chat(req())).usage.costUsd).toBeCloseTo(0.000012, 12);
+  });
+
+  it('redacts the key before truncating long error bodies', async () => {
+    const { fake, provider } = await setup();
+    const message = 'x'.repeat(290) + KEY + 'y'.repeat(100);
+    fake.enqueue({ status: 400, raw: message });
+    const err = (await provider.chat(req()).catch((e: unknown) => e)) as Error;
+    for (let n = 8; n <= KEY.length; n++) expect(err.message).not.toContain(KEY.slice(0, n));
+  });
+
   it('refuses a model without a provider pin before sending anything', async () => {
     const { fake, provider } = await setup();
     const err = await provider.chat(req({ providerPin: undefined })).catch((e: unknown) => e);
@@ -201,6 +229,18 @@ describe('fetchModelCatalog', () => {
     expect(catalog.get('acme/model-a')).toEqual({ id: 'acme/model-a', supportsTools: true, price: { prompt: 0.000001, completion: 0.000002 } });
     expect(catalog.get('acme/no-tools')?.supportsTools).toBe(false);
     expect(fake.requests[0]).toMatchObject({ method: 'GET', path: '/api/v1/models' });
+  });
+
+  it('treats null, empty and negative prices as no price', async () => {
+    const { fake } = await setup({
+      models: [
+        { id: 'a/n', pricing: { prompt: null, completion: '0.1' } },
+        { id: 'a/e', pricing: { prompt: '', completion: '' } },
+        { id: 'a/neg', pricing: { prompt: '-1', completion: '-1' } },
+      ],
+    });
+    const catalog = await fetchModelCatalog({ apiKey: KEY, baseUrl: fake.baseUrl });
+    for (const id of ['a/n', 'a/e', 'a/neg']) expect(catalog.get(id)?.price).toBeNull();
   });
 
   it('marks unparseable prices as null', async () => {
