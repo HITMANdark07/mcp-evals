@@ -3,7 +3,7 @@ import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotoc
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
-import { InfraError } from '../errors.js';
+import { InfraError, ToolTimeoutError } from '../errors.js';
 import type { ConnectContext, Connector, JsonObject, McpConnection, McpTool } from '../types.js';
 import { substituteVars } from '../util.js';
 
@@ -40,14 +40,14 @@ function wrap(client: Client, getStderr: () => string): McpConnection {
         if (e instanceof McpError && e.code === ErrorCode.ConnectionClosed) {
           throw new InfraError('server', `${name}: server connection closed (crashed?): ${e.message}`, true);
         }
-        if (e instanceof McpError && e.code === ErrorCode.RequestTimeout) {
-          throw new InfraError('server', `${name}: tool call timed out after ${timeoutMs}ms`, false);
-        }
+        if (e instanceof McpError && e.code === ErrorCode.RequestTimeout) throw new ToolTimeoutError(name, timeoutMs);
         if (e instanceof McpError) return { text: `Error: ${e.message}`, isError: true };
-        throw new InfraError('server', `${name}: ${(e as Error).message}`, true);
+        // Only a closed connection is known to be transient; anything else would most likely repeat on a retry.
+        throw new InfraError('server', `${name}: ${(e as Error).message}`, false);
       }
     },
     stderr: getStderr,
+    serverVersion: () => client.getServerVersion()?.version,
     async close() {
       try {
         await client.close();

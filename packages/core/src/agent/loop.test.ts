@@ -145,4 +145,24 @@ describe('runAgentLoop', () => {
     const { opts } = await setup([{ content: 'x' }], { maxSteps: 0, shouldStop: () => true });
     expect((await runAgentLoop(opts)).end).toBe('budget');
   });
+
+  it('ends with tool_timeout (a model fail, not infra) when one call exceeds the tool timeout', async () => {
+    const { opts } = await setup([{ toolCalls: [{ name: 'slow', arguments: { ms: 400 } }] }, { content: 'never' }], {
+      toolTimeoutMs: 50,
+      timeoutMs: 5000,
+    });
+    const r = await runAgentLoop(opts);
+    expect(r.end).toBe('tool_timeout');
+    expect(r.infraError).toBeUndefined();
+    expect(r.failReason).toBe('tool "slow" exceeded the 50ms tool timeout');
+    expect(r.events.at(-1)).toMatchObject({ type: 'error', kind: 'tool_timeout' });
+  });
+
+  it('still ends with timeout when the run deadline, not the tool timeout, cut the call short', async () => {
+    const { opts } = await setup([{ toolCalls: [{ name: 'slow', arguments: { ms: 400 } }] }, { content: 'never' }], {
+      toolTimeoutMs: 60_000,
+      timeoutMs: 100,
+    });
+    expect((await runAgentLoop(opts)).end).toBe('timeout');
+  });
 });
