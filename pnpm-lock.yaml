@@ -23,12 +23,25 @@ importers:
 
   packages/cli:
     dependencies:
-      '@mcp-evals/core':
-        specifier: workspace:*
-        version: link:../core
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.32.1(zod@4.6.7)
       commander:
         specifier: ^12.1.0
         version: 12.1.0
+      gpt-tokenizer:
+        specifier: ^4.0.3
+        version: 4.0.3
+      yaml:
+        specifier: ^2.8.0
+        version: 2.9.1
+      zod:
+        specifier: ^4.4.1
+        version: 4.6.7
+    devDependencies:
+      '@mcp-evals/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/core:
     dependencies:
