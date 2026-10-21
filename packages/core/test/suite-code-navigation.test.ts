@@ -29,12 +29,18 @@ describe('suites/code-navigation.yaml', () => {
       neatcode: { command: 'npx', args: ['-y', '@neatcodeai/mcp@0.1.5'], env: {}, headers: {}, setup: 'npx -y @neatcodeai/cli@0.1.5 init' },
       filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem@1.0.0', '{fixture}'], env: {}, headers: {} },
     });
-    expect(suite.models).toEqual(['anthropic/claude-sonnet-5.5', 'openai/gpt-6.1-sol', 'google/gemini-3.8-flash', 'qwen/qwen3.8-flash']);
+    expect(suite.models).toEqual([
+      'anthropic/claude-sonnet-5.5', 'openai/gpt-6.1-sol', 'google/gemini-3.8-flash', 'qwen/qwen3.8-flash',
+      'google/gemma-4-31b-it:free', 'minimax/minimax-m3.1-flash:free', 'nvidia/nemotron-3-ultra-550b-a55b:free',
+    ]);
     expect(suite.modelPins).toEqual({
       'anthropic/claude-sonnet-5.5': 'anthropic',
       'openai/gpt-6.1-sol': 'openai',
       'google/gemini-3.8-flash': 'google-ai-studio',
       'qwen/qwen3.8-flash': 'alibaba',
+      'google/gemma-4-31b-it:free': 'google-ai-studio',
+      'minimax/minimax-m3.1-flash:free': 'minimax',
+      'nvidia/nemotron-3-ultra-550b-a55b:free': 'nvidia',
     });
     expect(suite.defaults).toEqual({ repeats: 2, maxSteps: 12, timeoutS: 180, temperature: 0, toolTimeoutS: 60 });
   });
@@ -52,8 +58,8 @@ describe('suites/code-navigation.yaml', () => {
     for (const id of ['preset-routers', 'strict-path', 'default-error-handler']) expect(suite.tasks.map((t) => t.id)).toContain(id);
   });
 
-  it('plans 192 runs (12 tasks × 2 servers × 4 models × 2 repeats)', () => {
-    expect(previewPlan({ suites: [suite] }).planned.reduce((s, c) => s + c.runs, 0)).toBe(192);
+  it('plans 336 runs (12 tasks × 2 servers × 7 models × 2 repeats)', () => {
+    expect(previewPlan({ suites: [suite] }).planned.reduce((s, c) => s + c.runs, 0)).toBe(336);
   });
 
   it('passes a correct reference answer for every task', async () => {

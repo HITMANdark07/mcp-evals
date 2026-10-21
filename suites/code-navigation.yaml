@@ -18,6 +18,10 @@ models:
   - { id: openai/gpt-6.1-sol, provider: openai }
   - { id: google/gemini-3.8-flash, provider: google-ai-studio }
   - { id: qwen/qwen3.8-flash, provider: alibaba }
+  # Free OpenRouter variants (no cost, rate-limited; providers may log prompts, fine for this public fixture).
+  - { id: "google/gemma-4-31b-it:free", provider: google-ai-studio }
+  - { id: "minimax/minimax-m3.1-flash:free", provider: minimax }
+  - { id: "nvidia/nemotron-3-ultra-550b-a55b:free", provider: nvidia }
 defaults: { repeats: 2, max_steps: 12, timeout_s: 180, temperature: 0, tool_timeout_s: 60 }
 tasks:
   - id: router-implementations
