@@ -25,24 +25,46 @@ Full results: [`data/latest.json`](data/latest.json) · traces: [`data/runs/`](d
 
 Per server × model cell: task success (with a Wilson 95% interval), success counting infrastructure errors as failures, invalid tool calls, tool accuracy (where a task has tool graders), context tokens returned by tool calls (one tokenizer for every model), provider-reported prompt tokens, steps, latency and cost. Infrastructure failures (rate limits, crashes) are retried and reported as an error rate instead of counting against a model.
 
+## Install
+
+Requires Node 20+.
+
+```bash
+npm i -g mcpbench       # then: mcpbench --help
+npx mcpbench --help     # or run it without installing
+```
+
+The npm package is [`mcpbench`](https://www.npmjs.com/package/mcpbench) (the CLI also answers to `mcp-evals`). `report` and `compare` work offline; `run` needs `OPENROUTER_API_KEY` in the environment or in a `.env` file in the working directory.
+
 ## Quick start
 
-Requires Node 20+ and pnpm.
+The suite files are in [`suites/`](suites/) (clone the repository or download one); servers and fixtures in them are fetched with `npx` and `git`.
+
+```bash
+# A real run: prints the plan and a cost estimate first, and stops at the cap.
+mcpbench run suites/code-navigation.yaml \
+  --models openai/gpt-6.1-sol,google/gemini-3.8-flash,qwen/qwen3.8-flash \
+  --budget-usd 10 --out results.json --traces traces.jsonl
+
+mcpbench report results.json --format markdown
+mcpbench compare base.json results.json   # exit 1 on regression
+```
+
+Runs that stop (budget cap, out of credits, repeated provider errors) print the exact command to resume without re-paying finished runs. `run --provider mock` runs offline with a scripted model.
+
+To gate pull requests on regressions, use the GitHub Action: [`docs/github-action.md`](docs/github-action.md).
+
+### From a checkout (contributors)
+
+Requires pnpm. The commands are the same, with `node packages/cli/dist/index.js` in place of `mcpbench`.
 
 ```bash
 pnpm install && pnpm build
 cp .env.example .env            # add OPENROUTER_API_KEY (.env is git-ignored)
-
-# A real run: prints the plan and a cost estimate first, and stops at the cap.
 node packages/cli/dist/index.js run suites/code-navigation.yaml \
-  --models openai/gpt-6.1-sol,google/gemini-3.8-flash,qwen/qwen3.8-flash \
-  --budget-usd 10 --out results.json --traces traces.jsonl
-
-node packages/cli/dist/index.js report results.json --format markdown
-node packages/cli/dist/index.js compare base.json results.json   # exit 1 on regression
+  --models openai/gpt-6.1-sol --budget-usd 2 --out results.json --traces traces.jsonl
+pnpm typecheck && pnpm test
 ```
-
-Runs that stop (budget cap, out of credits, repeated provider errors) print the exact command to resume without re-paying finished runs. `run --provider mock` runs offline with a scripted model.
 
 ## Commands
 
@@ -50,7 +72,7 @@ Runs that stop (budget cap, out of credits, repeated provider errors) print the 
 |---|---|
 | `run <suites...>` | Run suites and write `results.json` (+ traces). `--resume <runId>`, `--retry-errors`, `--budget-usd`, `--models`, `--repeats`. |
 | `report <results>` | Print results as a table or markdown. |
-| `compare <base> <head>` | Compare two results files cell by cell; exit 1 when success drops or context grows past the thresholds. |
+| `compare <base> <head>` | Compare two results files cell by cell; exit 1 when success drops or context grows past the thresholds (`--max-success-drop`, `--max-context-increase`, `--format table\|markdown\|json`). Also available as a [GitHub Action](docs/github-action.md). |
 | `publish <results>` | Copy a finished run into `data/` (refuses partial runs and anything containing an API key). |
 
 ## Suites

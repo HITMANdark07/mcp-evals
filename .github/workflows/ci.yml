@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # Reads the pnpm version from packageManager in package.json.
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      # Smoke-test the npm package as users get it: pack, install outside the repo, run offline commands.
+      - name: Pack and smoke-test mcpbench
+        run: |
+          set -euo pipefail
+          pack_dir="${RUNNER_TEMP}/pack"
+          app_dir="${RUNNER_TEMP}/app"
+          mkdir -p "${pack_dir}" "${app_dir}"
+          (cd packages/cli && pnpm pack --pack-destination "${pack_dir}")
+          tarball="$(ls "${pack_dir}"/mcpbench-*.tgz)"
+          tar -tzf "${tarball}"
+          cp data/latest.json "${app_dir}/results.json"
+          cd "${app_dir}"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "${tarball}"
+          npx mcpbench --version
+          npx mcpbench report results.json --format markdown > /dev/null
+          npx mcpbench compare results.json results.json --format markdown
