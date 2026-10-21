@@ -4,7 +4,11 @@ import {
   ConfigError,
   estimateCost,
   fetchModelCatalog,
+  fetchServedModels,
+  OpenAICompatibleProvider,
+  OPENAI_COMPATIBLE_PROVIDER,
   OpenRouterProvider,
+  servedModelIssues,
   type CatalogModel,
   type Connector,
   type FixtureManager,
@@ -66,4 +70,58 @@ export async function openRouterPreflight(i: PreflightInput): Promise<OpenRouter
   }
   const knownPrices = Object.fromEntries([...catalog].flatMap(([id, m]) => (m.price ? [[id, m.price] as const] : [])));
   return new OpenRouterProvider({ ...endpoint, prices: knownPrices });
+}
+
+export interface LocalPreflightInput {
+  suites: Suite[];
+  servers?: string[];
+  plan: PlanPreview;
+  fixtures: FixtureManager;
+  connector: Connector;
+  env: Record<string, string | undefined>;
+  baseUrl: string;
+  log: (line: string) => void;
+}
+
+/**
+ * Pre-flight for an OpenAI-compatible (local) server: every planned model is listed by GET {base}/models, and every
+ * server starts once. Throws ConfigError (exit 2) otherwise. Cost is not measured for this provider, so the
+ * estimate is $0 and the budget check cannot fail.
+ */
+export async function openAICompatiblePreflight(i: LocalPreflightInput): Promise<OpenAICompatibleProvider> {
+  const apiKey = i.env.OPENAI_COMPATIBLE_API_KEY?.trim();
+  const endpoint = { baseUrl: i.baseUrl, ...(apiKey ? { apiKey } : {}) };
+  const provider = new OpenAICompatibleProvider(endpoint); // validates the URL first
+  const shown = displayUrl(i.baseUrl);
+  let served: Set<string>;
+  try {
+    served = await fetchServedModels(endpoint);
+  } catch (e) {
+    if (e instanceof ConfigError) throw e;
+    throw new ConfigError(`pre-flight: cannot list models at ${shown}/models (is the server running?): ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const issues = servedModelIssues({ suites: i.suites, planned: i.plan.planned, served });
+  if (issues.length > 0) throw new ConfigError(`pre-flight failed:\n  - ${issues.join('\n  - ')}`);
+  i.log(`pre-flight: ${served.size} model(s) listed by ${shown}`);
+
+  i.log('pre-flight: starting each server once');
+  const checks = await checkServers({ suites: i.suites, ...(i.servers ? { servers: i.servers } : {}), connector: i.connector, fixtures: i.fixtures });
+  for (const c of checks) i.log(`  ${c.suite}/${c.server}: ${c.tools} tools${c.version ? `, version ${c.version}` : ''}`);
+
+  const planned = i.plan.planned.reduce((s, c) => s + c.runs, 0);
+  const remaining = i.plan.remaining.reduce((s, c) => s + c.runs, 0);
+  i.log(`plan: ${planned} run(s), ${remaining} to execute; estimated cost ${usd(0)} (cost is not measured for ${OPENAI_COMPATIBLE_PROVIDER}: local servers report no price)`);
+  return provider;
+}
+
+/** The base URL without any user:password part, for messages. */
+function displayUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    u.username = '';
+    u.password = '';
+    return u.toString().replace(/\/+$/, '');
+  } catch {
+    return raw;
+  }
 }

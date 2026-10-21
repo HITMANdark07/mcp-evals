@@ -20,6 +20,12 @@ export {
   type CatalogModel,
   type ModelPrice,
 } from './providers/openrouter.js';
+export {
+  OpenAICompatibleProvider,
+  fetchServedModels,
+  OPENAI_COMPATIBLE_PROVIDER,
+  type OpenAICompatibleOptions,
+} from './providers/openai-compatible.js';
 export { FixtureManager, snapshotDir, type Workspace, type FixtureManagerOptions } from './fixtures/manager.js';
 export { stdioConnector, createInMemoryConnector, contentToText } from './mcp/connection.js';
 export { runSetup, setupEnv } from './mcp/setup.js';
@@ -40,6 +46,7 @@ export {
   estimateCost,
   measuredCostPerRun,
   catalogIssues,
+  servedModelIssues,
   ASSUMED_PROMPT_TOKENS_PER_RUN,
   ASSUMED_COMPLETION_TOKENS_PER_RUN,
   type ServerCheck,

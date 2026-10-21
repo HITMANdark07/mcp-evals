@@ -98,6 +98,14 @@ describe('parseSuite', () => {
     expect(issuesOf(yaml({ models: 'models: [gpt4]' }))).toMatch(/not a provider\/model id/);
   });
 
+  it('accepts local name:tag model ids (e.g. Ollama) plain or with a provider, but not :latest', () => {
+    const s = parseSuite(yaml({ models: 'models: [qwen3:8b, { id: llama3.2:1b, provider: ollama }]' }));
+    expect(s.models).toEqual(['qwen3:8b', 'llama3.2:1b']);
+    expect(s.modelPins).toEqual({ 'llama3.2:1b': 'ollama' });
+    expect(issuesOf(yaml({ models: 'models: [qwen3:latest]' }))).toMatch(/not pinned/);
+    expect(issuesOf(yaml({ models: 'models: [gpt4]' }))).toMatch(/not a provider\/model id \(or a local name:tag id/);
+  });
+
   it('rejects unpinned fixture refs and placeholder fixture urls', () => {
     expect(issuesOf(yaml({ fixture: 'fixture: { git: "https://x/r.git", ref: main }' }))).toMatch(/commit sha/);
     expect(issuesOf(yaml({ fixture: 'fixture: { git: "https://github.com/<org>/r", ref: "0123abcd" }' }))).toMatch(
