@@ -16,7 +16,7 @@ Benchmark MCP servers and the models that use them. mcp-evals runs the same task
 | filesystem | Qwen3.8 Flash | 25% [12–45%] | 42% | 13,420 | $0.0113 |
 
 - **GPT-6.1 Sol** solved every task on both servers. With NeatCode it used 61% fewer tool-result tokens and cost 46% less per task, though it took more steps.
-- **Both flash models scored lower with NeatCode.** Their traces led to a NeatCode indexer bug: functions written as `export const compose = (...) => ...` were not indexed, so `compose`, `every`, `mergePath` and `timingSafeEqual` could not be found. It is fixed in NeatCode 0.1.5 (on Hono the graph went from 82 to 592 function nodes); this run has not been repeated with 0.1.5 yet, so the numbers above are for 0.1.4.
+- **Both flash models scored lower with NeatCode.** Their traces led to a NeatCode indexer bug: functions written as `export const compose = (...) => ...` were not indexed, so `compose`, `every`, `mergePath` and `timingSafeEqual` could not be found. It is fixed in NeatCode 0.1.5 (on Hono the graph went from 82 to 592 function nodes), along with interface nodes, "did you mean" suggestions and a bounded `get_source` tool. In a small 1-repeat check with 0.1.5, Qwen3.8 Flash passed 9 of 12 tasks (was 2 of 24) and Gemini 3.8 Flash 2 of 6 (was 0 of 12); the table above stays the measured 0.1.4 run until a full re-run.
 - The harness author also wrote NeatCode. Tasks, answer keys and graders are in [`suites/`](suites/), and every trace is published.
 
 Full results: [`data/latest.json`](data/latest.json) · traces: [`data/runs/`](data/runs/) · how it is measured, fairness rules and limitations: [`docs/methodology.md`](docs/methodology.md).
