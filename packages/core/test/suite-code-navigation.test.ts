@@ -26,7 +26,7 @@ describe('suites/code-navigation.yaml', () => {
   it('pins the fixture, servers and models from the M2 spec', () => {
     expect(suite.fixture).toEqual({ git: 'https://github.com/honojs/hono', ref: '08a023cbfde55b434fb0fb30fae35d42e4bf20aa' });
     expect(suite.servers).toEqual({
-      neatcode: { command: 'npx', args: ['-y', '@neatcodeai/mcp@0.1.4'], env: {}, headers: {}, setup: 'npx -y @neatcodeai/cli@0.1.4 init' },
+      neatcode: { command: 'npx', args: ['-y', '@neatcodeai/mcp@0.1.5'], env: {}, headers: {}, setup: 'npx -y @neatcodeai/cli@0.1.5 init' },
       filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem@1.0.0', '{fixture}'], env: {}, headers: {} },
     });
     expect(suite.models).toEqual(['anthropic/claude-sonnet-5.5', 'openai/gpt-6.1-sol', 'google/gemini-3.8-flash', 'qwen/qwen3.8-flash']);

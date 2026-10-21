@@ -47,7 +47,7 @@ The code-navigation graders check symbols with word-boundary `answer_matches` pa
 | Models (OpenRouter id → provider) | `anthropic/claude-sonnet-5.5` → `anthropic` (smoke run only, see below); `openai/gpt-6.1-sol` → `openai`; `google/gemini-3.8-flash` → `google-ai-studio`; `qwen/qwen3.8-flash` → `alibaba` |
 | Judge | `anthropic/claude-haiku-5.5` → `anthropic` (general-tools only; code-navigation has no `llm_judge` tasks) |
 | Fixture | `https://github.com/honojs/hono` v4.13.13 @ `08a023cbfde55b434fb0fb30fae35d42e4bf20aa` |
-| Servers | `@neatcodeai/mcp@0.1.4` (setup `@neatcodeai/cli@0.1.4 init`); `@modelcontextprotocol/server-filesystem@1.0.0`; `@modelcontextprotocol/server-memory@1.0.0` (general-tools) |
+| Servers | `@neatcodeai/mcp@0.1.4` (setup `@neatcodeai/cli@0.1.4 init`; the suite now pins 0.1.5 for the next run); `@modelcontextprotocol/server-filesystem@1.0.0`; `@modelcontextprotocol/server-memory@1.0.0` (general-tools) |
 | Tokenizer | `gpt-tokenizer` `o200k_base` |
 | Repeats | 2 (code-navigation first run) |
 

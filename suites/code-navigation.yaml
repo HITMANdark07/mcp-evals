@@ -8,8 +8,8 @@ fixture:
 servers:
   neatcode:
     command: npx
-    args: ["-y", "@neatcodeai/mcp@0.1.4"]
-    setup: "npx -y @neatcodeai/cli@0.1.4 init"
+    args: ["-y", "@neatcodeai/mcp@0.1.5"]
+    setup: "npx -y @neatcodeai/cli@0.1.5 init"
   filesystem:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem@1.0.0", "{fixture}"]
