@@ -1,0 +1,120 @@
+name: mcpbench compare
+description: Compare two mcpbench (mcp-evals) results files, post the table to the job summary and the pull request, and fail on a regression.
+author: HITMANdark07
+branding:
+  icon: bar-chart-2
+  color: blue
+
+inputs:
+  base:
+    description: Path to the baseline results.json (for example one committed to the repository).
+    required: true
+  head:
+    description: Path to the new results.json to check.
+    required: true
+  max-success-drop:
+    description: Regression when task success drops by more than this many percentage points.
+    required: false
+    default: '5'
+  max-context-increase:
+    description: Regression when median context tokens rise by more than this percent.
+    required: false
+    default: '20'
+  comment:
+    description: 'On pull_request events, create or update one PR comment with the comparison (needs the pull-requests: write permission).'
+    required: false
+    default: 'true'
+  mcpbench-version:
+    description: Version of the mcpbench npm package to run.
+    required: false
+    default: '0.2.0'
+  github-token:
+    description: Token used to post the PR comment.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  exit-code:
+    description: Exit code of `mcpbench compare` (0 no regression, 1 regression, 2 invalid input).
+    value: ${{ steps.compare.outputs.exit-code }}
+  report:
+    description: Path to the markdown report written by this action.
+    value: ${{ steps.compare.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - id: compare
+      shell: bash
+      env:
+        MCPBENCH_BASE: ${{ inputs.base }}
+        MCPBENCH_HEAD: ${{ inputs.head }}
+        MCPBENCH_MAX_SUCCESS_DROP: ${{ inputs.max-success-drop }}
+        MCPBENCH_MAX_CONTEXT_INCREASE: ${{ inputs.max-context-increase }}
+        MCPBENCH_VERSION: ${{ inputs.mcpbench-version }}
+      run: |
+        set -u
+        report="${RUNNER_TEMP}/mcpbench-compare.md"
+        out="${RUNNER_TEMP}/mcpbench-compare.out"
+        set +e
+        npx --yes "mcpbench@${MCPBENCH_VERSION}" compare "${MCPBENCH_BASE}" "${MCPBENCH_HEAD}" \
+          --max-success-drop "${MCPBENCH_MAX_SUCCESS_DROP}" \
+          --max-context-increase "${MCPBENCH_MAX_CONTEXT_INCREASE}" \
+          --format markdown > "${out}"
+        code=$?
+        set -e
+        case "${code}" in
+          0) status="No regression" ;;
+          1) status="Regression" ;;
+          *) status="Compare failed (exit ${code})" ;;
+        esac
+        {
+          echo "<!-- mcpbench -->"
+          echo "### mcpbench compare: ${status}"
+          echo
+          echo "Base \`${MCPBENCH_BASE}\` vs. head \`${MCPBENCH_HEAD}\` · mcpbench ${MCPBENCH_VERSION}"
+          echo
+          cat "${out}"
+        } > "${report}"
+        cat "${out}"
+        cat "${report}" >> "${GITHUB_STEP_SUMMARY}"
+        echo "exit-code=${code}" >> "${GITHUB_OUTPUT}"
+        echo "report=${report}" >> "${GITHUB_OUTPUT}"
+
+    - if: ${{ inputs.comment == 'true' && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') }}
+      # Commenting is best effort: a fork PR's read-only token must not hide the compare result.
+      continue-on-error: true
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+      env:
+        MCPBENCH_REPORT: ${{ steps.compare.outputs.report }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const marker = '<!-- mcpbench -->';
+          const limit = 65000;
+          let body = fs.readFileSync(process.env.MCPBENCH_REPORT, 'utf8');
+          if (body.length > limit) body = body.slice(0, limit) + '\n\n… truncated; see the job summary for the full table.';
+          const { owner, repo } = context.repo;
+          const issue_number = context.payload.pull_request.number;
+          const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+          const existing = comments.find((c) => typeof c.body === 'string' && c.body.startsWith(marker));
+          if (existing) {
+            await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            core.info(`Updated comment ${existing.html_url}`);
+          } else {
+            const { data } = await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            core.info(`Created comment ${data.html_url}`);
+          }
+
+    - shell: bash
+      env:
+        MCPBENCH_EXIT: ${{ steps.compare.outputs.exit-code }}
+      run: |
+        if [ "${MCPBENCH_EXIT}" = "1" ]; then
+          echo "::error title=mcpbench::Regression: see the comparison in the job summary."
+          exit 1
+        elif [ "${MCPBENCH_EXIT}" != "0" ]; then
+          echo "::error title=mcpbench::mcpbench compare failed with exit code ${MCPBENCH_EXIT}."
+          exit "${MCPBENCH_EXIT}"
+        fi
