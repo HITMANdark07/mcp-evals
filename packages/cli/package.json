@@ -1,14 +1,55 @@
 {
-  "name": "@mcp-evals/cli",
+  "name": "mcpbench",
   "version": "0.2.0",
-  "private": true,
+  "description": "Benchmark MCP servers and the models that use them: run suites, grade answers, and gate CI on success and context regressions.",
   "license": "MIT",
+  "author": "Shekhar Kumar",
   "type": "module",
-  "bin": { "mcp-evals": "./dist/index.js" },
-  "files": ["dist"],
-  "scripts": { "build": "tsup", "typecheck": "tsc --noEmit" },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "benchmark",
+    "evals",
+    "evaluation",
+    "llm",
+    "agents",
+    "tool-calling",
+    "openrouter",
+    "cli"
+  ],
+  "homepage": "https://github.com/HITMANdark07/mcp-evals#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HITMANdark07/mcp-evals.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/HITMANdark07/mcp-evals/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "mcpbench": "./dist/index.js",
+    "mcp-evals": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
-    "@mcp-evals/core": "workspace:*",
-    "commander": "^12.1.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^12.1.0",
+    "gpt-tokenizer": "^4.0.3",
+    "yaml": "^2.8.0",
+    "zod": "^4.4.1"
+  },
+  "devDependencies": {
+    "@mcp-evals/core": "workspace:*"
   }
 }
