@@ -2,6 +2,8 @@
 
 Benchmark MCP servers and the models that use them. mcp-evals runs the same tasks across models and MCP servers, grades the answers, and records every model call and tool call, so a claim like "this server saves context" can be checked against the same tasks, prompts and limits.
 
+**Leaderboard:** https://hitmandark07.github.io/mcp-evals/ (every published run in `data/`, built by `scripts/build-site.mjs`; `node scripts/build-site.mjs` writes it to `site-dist/` locally).
+
 ## First results (2026-10-16)
 
 12 code-navigation tasks on [Hono](https://github.com/honojs/hono) v4.13.13, 2 repeats, [NeatCode](https://github.com/HITMANdark07/neatcodeai) 0.1.4 vs. the [filesystem MCP server](https://www.npmjs.com/package/@modelcontextprotocol/server-filesystem) 1.0.0, three models through OpenRouter (each pinned to one provider). 144 runs, every cell complete, $7.10 in total.
@@ -81,7 +83,7 @@ Suites are YAML: servers (command, args, setup), models with their pinned provid
 
 ## Status
 
-Milestones 1 (runner, graders, CLI) and 2 (OpenRouter runs, results schema v2, resume, `compare`, `report`, `publish`, first real run) are done. Next: a GitHub Action that comments on PRs and gates CI, an npm release, and a public leaderboard.
+Milestones 1 (runner, graders, CLI) and 2 (OpenRouter runs, results schema v2, resume, `compare`, `report`, `publish`, first real run) are done. The leaderboard page is built from `data/` and deployed to GitHub Pages by `.github/workflows/pages.yml`. Next: a GitHub Action that comments on PRs and gates CI, and an npm release.
 
 ## License
 
