@@ -10,7 +10,7 @@ import type { CatalogModel, ModelPrice } from '../providers/openrouter.js';
 import type { Results } from '../results/schema.js';
 import { parseSuite } from '../suite/load.js';
 import type { Connector } from '../types.js';
-import { catalogIssues, checkServers, estimateCost, measuredCostPerRun } from './preflight.js';
+import { catalogIssues, checkServers, estimateCost, measuredCostPerRun, servedModelIssues } from './preflight.js';
 
 const SUITE = `
 suite: demo
@@ -129,5 +129,21 @@ describe('catalogIssues', () => {
       'suite demo: judge "acme/judge" is not in the OpenRouter catalog',
     ]);
     expect(catalogIssues({ suites: [suite], planned: [planned[0]!], catalog: new Map([...catalog, ['acme/judge', { id: 'acme/judge', supportsTools: false, price: null }]]) })).toEqual([]);
+  });
+});
+
+describe('servedModelIssues', () => {
+  const planned = [
+    { suite: 'demo', server: 'fake', model: 'acme/a', runs: 1 },
+    { suite: 'demo', server: 'fake', model: 'acme/b', runs: 1 },
+  ];
+  it('flags planned models and a needed judge the server does not list, and needs no pins', () => {
+    expect(servedModelIssues({ suites: [suite], planned, served: new Set(['acme/a']) })).toEqual([
+      'suite demo: model "acme/b" is not listed by the server (GET /models lists: acme/a)',
+      'suite demo: judge "acme/judge" is not listed by the server (GET /models lists: acme/a)',
+    ]);
+    expect(servedModelIssues({ suites: [suite], planned, served: new Set() })[0]).toMatch(/lists: \(none\)/);
+    // acme/b has no pin: fine for a local server.
+    expect(servedModelIssues({ suites: [suite], planned, served: new Set(['acme/a', 'acme/b', 'acme/judge']) })).toEqual([]);
   });
 });

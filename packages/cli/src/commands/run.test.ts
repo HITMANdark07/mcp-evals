@@ -420,3 +420,150 @@ describe('STOPPED lines (fake OpenRouter)', () => {
     expect(lines.some((l) => l.startsWith('# Add --retry-errors'))).toBe(true);
   });
 });
+
+// ---- openai-compatible path (local servers such as Ollama), against the same local fake ---------
+
+describe('runCommand --provider openai-compatible (fake local server, stdio fake server)', () => {
+  /** The fake as a local server: it lists `served`, answers like `script`, and reports no usage unless `usage` is set. */
+  async function localSetup(o: { served?: string[]; respond?: (body: any) => FakeReply; usage?: boolean; suite?: string } = {}) {
+    const dir = await mkdtemp(join(tmpdir(), 'cli-local-'));
+    const suite = join(dir, 'local.yaml');
+    await writeFile(suite, o.suite ?? LIVE_SUITE);
+    const respond = o.respond ?? ((body: any) => {
+      const reply = script(body);
+      if (!o.usage) delete (reply.json as Record<string, unknown>).usage;
+      return reply;
+    });
+    const f = await startFakeOpenRouter({ models: (o.served ?? ['qwen3:8b', 'acme/judge']).map((id) => ({ id, object: 'model' })), respond });
+    fake = f;
+    const lines: string[] = [];
+    const opts: RunCommandOptions = {
+      suites: [suite], provider: 'openai-compatible', baseUrl: f.baseUrl, models: ['qwen3:8b'], env: {},
+      out: join(dir, 'results.json'), traces: join(dir, 'traces.jsonl'), cacheDir: join(dir, 'cache'), runsDir: join(dir, 'runs'),
+      retries: 0, log: (l) => lines.push(l),
+    };
+    return { dir, suite, lines, opts, fake: f };
+  }
+
+  it('runs a suite against --models not listed in it, with plain requests, $0 cost, and provider openai-compatible', async () => {
+    const { opts, lines, fake } = await localSetup();
+    // A tiny cap: cost is $0 for this provider, so it never trips and the run never stops for an unknown cost.
+    const { exitCode, results } = await runCommand({ ...opts, budgetUsd: 0.000001 });
+    expect(exitCode).toBe(0);
+    const s = results!.suites[0]!;
+    expect(s.models).toEqual([{ id: 'qwen3:8b', provider: 'openai-compatible' }]);
+    expect(s.judge).toEqual({ id: 'acme/judge', provider: 'openai-compatible' });
+    expect(s.cells[0]).toMatchObject({ model: 'qwen3:8b', runs: 2, plannedRuns: 2, complete: true, successRate: 1, costUsdPerTask: 0 });
+    // The server sent no usage: provider-reported tokens are 0.
+    expect(s.cells[0]!.providerPromptTokensPerTask).toEqual({ mean: 0, median: 0 });
+    expect(results).toMatchObject({ partial: false, totalCostUsd: 0 });
+    expect(lines.some((l) => l.startsWith('STOPPED'))).toBe(false);
+    expect(lines).toContain('  live/fake: 9 tools, version 1.0.0');
+    expect(lines).toContain('plan: 2 run(s), 2 to execute; estimated cost $0.0000 (cost is not measured for openai-compatible: local servers report no price)');
+    const chats = fake.chatRequests();
+    expect(chats).toHaveLength(6); // 2 runs × (2 agent calls + 1 judge call)
+    for (const r of chats) {
+      expect(r.body).not.toHaveProperty('provider');
+      expect(Object.keys(r.body).sort()).toEqual(r.body.tools ? ['messages', 'model', 'temperature', 'tools'] : ['messages', 'model', 'temperature']);
+      expect(r.headers.authorization).toBeUndefined();
+    }
+    expect(chats.filter((r) => r.body.model === 'qwen3:8b')).toHaveLength(4);
+    expect(fake.requests.filter((r) => r.method === 'GET' && r.path === '/api/v1/models')).toHaveLength(1);
+  });
+
+  it('costs $0 even when the server reports usage.cost, and keeps its token counts', async () => {
+    const { opts } = await localSetup({ usage: true });
+    const { results } = await runCommand(opts);
+    expect(results!.totalCostUsd).toBe(0);
+    expect(results!.suites[0]!.cells[0]!.providerPromptTokensPerTask).toEqual({ mean: 300, median: 300 });
+  });
+
+  it('accepts unpinned plain name:tag models listed in the suite, and pinned ones, without --models', async () => {
+    const suite = LIVE_SUITE.replace('models: [{ id: acme/model-a, provider: acme }]', 'models: [qwen3:8b, { id: acme/judge, provider: acme }]');
+    const { opts } = await localSetup({ suite });
+    const { exitCode, results } = await runCommand({ ...opts, models: undefined });
+    expect(exitCode).toBe(0);
+    expect(results!.suites[0]!.models).toEqual([
+      { id: 'qwen3:8b', provider: 'openai-compatible' },
+      { id: 'acme/judge', provider: 'openai-compatible' },
+    ]);
+  });
+
+  it('sends OPENAI_COMPATIBLE_API_KEY as a Bearer token and never writes it anywhere', async () => {
+    const { opts, lines, fake } = await localSetup();
+    const key = 'local-key-SECRET-789';
+    const { exitCode, runId } = await runCommand({ ...opts, env: { OPENAI_COMPATIBLE_API_KEY: key } });
+    expect(exitCode).toBe(0);
+    expect(fake.requests.length).toBeGreaterThan(1);
+    expect(fake.requests.every((r) => r.headers.authorization === `Bearer ${key}`)).toBe(true);
+    for (const path of [opts.out, opts.traces!, join(opts.runsDir!, `${runId}.jsonl`), join(opts.runsDir!, `${runId}.manifest.json`)]) {
+      expect(await readFile(path, 'utf8')).not.toContain(key);
+    }
+    expect(lines.join('\n')).not.toContain(key);
+  });
+
+  it('exits 2 in pre-flight when a requested model (or the needed judge) is not listed, before any chat request', async () => {
+    const { opts, lines, fake } = await localSetup({ served: ['llama3.2:1b'] });
+    expect((await runCommand(opts)).exitCode).toBe(2);
+    expect(lines).toEqual([
+      'error: pre-flight failed:\n' +
+        '  - suite live: model "qwen3:8b" is not listed by the server (GET /models lists: llama3.2:1b)\n' +
+        '  - suite live: judge "acme/judge" is not listed by the server (GET /models lists: llama3.2:1b)',
+    ]);
+    expect(fake.chatRequests()).toHaveLength(0);
+    expect(existsSync(opts.out)).toBe(false);
+    expect(existsSync(opts.runsDir!)).toBe(false);
+  });
+
+  it('exits 2 in pre-flight when GET /models fails (e.g. 404 from a wrong base URL)', async () => {
+    const { opts, lines, fake } = await localSetup();
+    expect((await runCommand({ ...opts, baseUrl: `${fake.baseUrl}/wrong` })).exitCode).toBe(2);
+    expect(lines.at(-1)).toMatch(/^error: pre-flight: cannot list models at http:\/\/127\.0\.0\.1:\d+\/api\/v1\/wrong\/models \(is the server running\?\): .*404/);
+    expect(fake.chatRequests()).toHaveLength(0);
+  });
+
+  it('retries a 500 like OpenRouter and passes on the next attempt', async () => {
+    let n = 0;
+    const { opts } = await localSetup({
+      respond: (body) => {
+        if (++n === 1) return { status: 500, json: { error: { code: 500, message: 'model runner crashed' } } };
+        const reply = script(body);
+        delete (reply.json as Record<string, unknown>).usage;
+        return reply;
+      },
+    });
+    const { exitCode, results } = await runCommand({ ...opts, retries: 1, repeats: 1 });
+    expect(exitCode).toBe(0);
+    expect(results!.suites[0]!.cells[0]).toMatchObject({ runs: 1, successRate: 1, errorRate: 0 });
+    const trace = JSON.parse((await readFile(opts.traces!, 'utf8')).trim());
+    expect(trace).toMatchObject({ outcome: 'pass', attempts: 2 });
+  }, 20_000);
+
+  it('exits 2 when the base URL is missing or invalid, and accepts OPENAI_COMPATIBLE_BASE_URL', async () => {
+    const { opts, lines, fake } = await localSetup();
+    expect((await runCommand({ ...opts, baseUrl: undefined })).exitCode).toBe(2);
+    expect(lines.at(-1)).toMatch(/^error: --provider openai-compatible needs the server's base URL: pass --base-url .* or set OPENAI_COMPATIBLE_BASE_URL$/);
+    expect((await runCommand({ ...opts, baseUrl: 'localhost:11434' })).exitCode).toBe(2);
+    expect(lines.at(-1)).toMatch(/^error: (invalid base URL|base URL must be http)/);
+    // Refused before anything else, so no request ever leaves for the real OpenRouter.
+    expect((await runCommand({ ...opts, provider: 'openrouter', env: { OPENROUTER_API_KEY: 'k' } })).exitCode).toBe(2);
+    expect(lines.at(-1)).toBe('error: --base-url only applies with --provider openai-compatible');
+    expect(fake.requests.filter((r) => r.path.endsWith('/chat/completions'))).toHaveLength(0);
+    expect((await runCommand({ ...opts, baseUrl: undefined, env: { OPENAI_COMPATIBLE_BASE_URL: fake.baseUrl } })).exitCode).toBe(0);
+  });
+
+  it('exits 2 through main when --provider openai-compatible has no base URL', async () => {
+    const { suite, dir } = await localSetup();
+    const lines: string[] = [];
+    const deps: ProgramDeps = {
+      run: (o) => runCommand({ ...o, env: {}, log: (l) => lines.push(l), runsDir: join(dir, 'runs') }),
+      compare: async () => ({ exitCode: 0 }),
+      report: async () => ({ exitCode: 0 }),
+      publish: async () => ({ exitCode: 0 }),
+      writeOut: () => {},
+      writeErr: () => {},
+    };
+    expect(await main(['run', suite, '--provider', 'openai-compatible', '--models', 'qwen3:8b'], deps)).toBe(2);
+    expect(lines).toEqual([expect.stringMatching(/needs the server's base URL/)]);
+  });
+});

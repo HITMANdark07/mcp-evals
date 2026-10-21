@@ -68,11 +68,31 @@ node packages/cli/dist/index.js run suites/code-navigation.yaml \
 pnpm typecheck && pnpm test
 ```
 
+## Run local models (Ollama)
+
+Any server that speaks the OpenAI chat-completions API with tool calling works with `--provider openai-compatible`: Ollama, LM Studio, vLLM, the llama.cpp server. With Ollama:
+
+```bash
+# 1. Install Ollama (https://ollama.com/download), start it, and pull a model that supports tool calling
+ollama pull qwen3:8b
+
+# 2. Run a suite against it (Ollama serves its OpenAI-compatible API under /v1)
+mcpbench run suites/code-navigation.yaml \
+  --provider openai-compatible --base-url http://localhost:11434/v1 \
+  --models qwen3:8b --repeats 1 --out local.json --traces local.jsonl
+```
+
+- `--models` names the server's model ids; they do not need to be listed in the suite, and need no provider pin. `--base-url` can also come from `OPENAI_COMPATIBLE_BASE_URL`. If the server needs a key, set `OPENAI_COMPATIBLE_API_KEY` (sent as a Bearer token, never logged or written).
+- Pre-flight checks that every model is listed by `GET {base}/models` and starts each MCP server once.
+- Cost is **not measured** for local servers: every call is recorded as $0 and the estimate prints $0. Token counts come from the server's `usage` when it reports one (otherwise 0).
+- Suites with `llm_judge` tasks (e.g. `general-tools`) also need the suite's judge model to be served by the same server.
+- Local runs are checks, not leaderboard numbers: cost and latency depend on your hardware and are not comparable with hosted runs. See [methodology](docs/methodology.md#local-models-openai-compatible-servers).
+
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `run <suites...>` | Run suites and write `results.json` (+ traces). `--resume <runId>`, `--retry-errors`, `--budget-usd`, `--models`, `--repeats`. |
+| `run <suites...>` | Run suites and write `results.json` (+ traces). `--provider openrouter\|openai-compatible\|mock`, `--base-url`, `--resume <runId>`, `--retry-errors`, `--budget-usd`, `--models`, `--repeats`. |
 | `report <results>` | Print results as a table or markdown. |
 | `compare <base> <head>` | Compare two results files cell by cell; exit 1 when success drops or context grows past the thresholds (`--max-success-drop`, `--max-context-increase`, `--format table\|markdown\|json`). Also available as a [GitHub Action](docs/github-action.md). |
 | `publish <results>` | Copy a finished run into `data/` (refuses partial runs and anything containing an API key). |

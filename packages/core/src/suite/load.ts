@@ -18,6 +18,8 @@ export class SuiteError extends Error {
 const NAME = /^[a-z0-9][a-z0-9_-]*$/;
 const PLACEHOLDER = /<[^<>\s]*>/;
 const MODEL_ID = /^[a-z0-9][\w.-]*\/[\w.:-]+$/i;
+/** A local server's name:tag id, e.g. Ollama's qwen3:8b (for --provider openai-compatible). */
+const LOCAL_MODEL_ID = /^[a-z0-9][\w.-]*:[\w.-]+$/i;
 const UNPINNED = /([:-]latest$)|(^openrouter\/auto$)/i;
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -127,7 +129,7 @@ export async function loadSuite(path: string): Promise<Suite> {
 
 function modelIdIssue(id: string, at: string): string | undefined {
   if (PLACEHOLDER.test(id)) return `${at}: "${id}" contains an unresolved placeholder`;
-  if (!MODEL_ID.test(id)) return `${at}: "${id}" is not a provider/model id`;
+  if (!MODEL_ID.test(id) && !LOCAL_MODEL_ID.test(id)) return `${at}: "${id}" is not a provider/model id (or a local name:tag id such as qwen3:8b)`;
   if (UNPINNED.test(id)) return `${at}: "${id}" is not pinned`;
   return undefined;
 }

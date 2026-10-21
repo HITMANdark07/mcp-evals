@@ -1,10 +1,22 @@
-import { ConfigError, CostUnknownError, OutOfCreditsError, ProviderError } from '../errors.js';
+import { ConfigError, CostUnknownError, ProviderError } from '../errors.js';
 import { countTokens } from '../tokens.js';
-import type { ChatMessage, ChatRequest, ChatResponse, JsonObject, ModelProvider, ToolCall } from '../types.js';
+import type { ChatRequest, ChatResponse, JsonObject, ModelProvider, ToolCall } from '../types.js';
 import { isPlainObject } from '../util.js';
+import {
+  AbortedAfterSend,
+  classifyHttpError,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  messageOf,
+  numberOr,
+  parseToolCall,
+  requestJson,
+  toWireMessage,
+  toWireTools,
+  trimBaseUrl,
+  type ChatEndpoint,
+} from './openai-chat.js';
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 
 /** USD per token, from the OpenRouter model catalog. */
 export interface ModelPrice {
@@ -28,15 +40,9 @@ export interface OpenRouterOptions {
   now?: () => number;
 }
 
-interface Endpoint {
-  apiKey: string;
-  baseUrl: string;
-  requestTimeoutMs: number;
-}
-
 export class OpenRouterProvider implements ModelProvider {
   readonly name = 'openrouter';
-  readonly #endpoint: Endpoint;
+  readonly #endpoint: ChatEndpoint;
   readonly #prices: Record<string, ModelPrice>;
   readonly #now: () => number;
   #generatedIds = 0;
@@ -55,17 +61,17 @@ export class OpenRouterProvider implements ModelProvider {
     }
     const body: JsonObject = {
       model: req.model,
-      messages: req.messages.map(toWireMessage),
+      messages: req.messages.map((m) => toWireMessage(m, { reasoningDetails: true })),
       temperature: req.temperature,
       provider: { order: [req.providerPin], allow_fallbacks: false },
     };
     if (req.tools.length > 0) {
-      body.tools = req.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+      body.tools = toWireTools(req.tools);
     }
     const t0 = this.#now();
     let json: unknown;
     try {
-      json = await request(this.#endpoint, 'POST', '/chat/completions', body, req.signal);
+      json = await requestJson(this.#endpoint, 'POST', '/chat/completions', body, req.signal);
     } catch (e) {
       if (e instanceof AbortedAfterSend) throw this.#chargeAborted(e, req.model, body);
       throw e;
@@ -105,7 +111,7 @@ export class OpenRouterProvider implements ModelProvider {
     const usageObj = isPlainObject(json.usage) ? json.usage : undefined;
     // A 200 can still carry an error: OpenRouter reports upstream failures in the body. Any reported spend still counts.
     if (isPlainObject(error) && !Array.isArray(choices)) {
-      throw classify(numberOr(error.code, 502), messageOf(error), this.#costOf(usageObj, model) ?? 0);
+      throw classifyHttpError(this.#endpoint, numberOr(error.code, 502), messageOf(error), this.#costOf(usageObj, model) ?? 0);
     }
     const choice: unknown = Array.isArray(choices) ? choices[0] : undefined;
     if (!isPlainObject(choice)) throw new ProviderError('OpenRouter: malformed response (no choices[0].message)', false);
@@ -142,21 +148,14 @@ export class OpenRouterProvider implements ModelProvider {
   }
 
   #toolCall(c: unknown): ToolCall {
-    const call = isPlainObject(c) ? c : {};
-    const fn = isPlainObject(call.function) ? call.function : {};
-    const args = fn.arguments;
-    return {
-      // Some providers omit ids; tool results must still reference a unique one.
-      id: typeof call.id === 'string' && call.id !== '' ? call.id : `gen_call_${++this.#generatedIds}`,
-      name: typeof fn.name === 'string' ? fn.name : '',
-      arguments: typeof args === 'string' ? args : args === undefined || args === null ? '' : JSON.stringify(args),
-    };
+    // Some providers omit ids; tool results must still reference a unique one.
+    return parseToolCall(c, () => `gen_call_${++this.#generatedIds}`);
   }
 }
 
 /** GET /models: ids, tool support, and per-token prices. */
 export async function fetchModelCatalog(o: { apiKey: string; baseUrl?: string; requestTimeoutMs?: number }): Promise<Map<string, CatalogModel>> {
-  const json = await request(endpoint(o), 'GET', '/models', undefined);
+  const json = await requestJson(endpoint(o), 'GET', '/models', undefined);
   const data = isPlainObject(json) ? json.data : undefined;
   if (!Array.isArray(data)) throw new ProviderError('OpenRouter: malformed model catalog (no data array)', false);
   const out = new Map<string, CatalogModel>();
@@ -177,82 +176,19 @@ export async function fetchModelCatalog(o: { apiKey: string; baseUrl?: string; r
   return out;
 }
 
-function endpoint(o: { apiKey: string; baseUrl?: string; requestTimeoutMs?: number }): Endpoint {
+function endpoint(o: { apiKey: string; baseUrl?: string; requestTimeoutMs?: number }): ChatEndpoint {
   return {
+    label: 'OpenRouter',
     apiKey: o.apiKey,
-    baseUrl: (o.baseUrl ?? OPENROUTER_BASE_URL).replace(/\/+$/, ''),
+    baseUrl: trimBaseUrl(o.baseUrl ?? OPENROUTER_BASE_URL),
     requestTimeoutMs: o.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+    headers: { 'X-Title': 'mcp-evals' },
+    creditErrors: true,
+    errorBodyCostUsd: (json) => {
+      const usage = isPlainObject(json) && isPlainObject(json.usage) ? json.usage : undefined;
+      return usage && typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost > 0 ? usage.cost : 0;
+    },
   };
-}
-
-/** A request cut off (run abort or request timeout) after it was sent; the provider may still bill it. */
-class AbortedAfterSend extends ProviderError {}
-
-async function request(ep: Endpoint, method: 'GET' | 'POST', path: string, body: JsonObject | undefined, signal?: AbortSignal): Promise<unknown> {
-  const redact = (s: string) => s.split(ep.apiKey).join('[redacted]');
-  const controller = new AbortController();
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, ep.requestTimeoutMs);
-  const forwardAbort = () => controller.abort();
-  const abortedBeforeSend = signal?.aborted === true;
-  if (abortedBeforeSend) controller.abort();
-  else signal?.addEventListener('abort', forwardAbort, { once: true });
-  let status: number;
-  let text: string;
-  try {
-    const res = await fetch(`${ep.baseUrl}${path}`, {
-      method,
-      headers: { Authorization: `Bearer ${ep.apiKey}`, 'Content-Type': 'application/json', 'X-Title': 'mcp-evals' },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      signal: controller.signal,
-    });
-    status = res.status;
-    text = await res.text();
-  } catch (e) {
-    if (timedOut) throw new AbortedAfterSend(`OpenRouter request timed out after ${ep.requestTimeoutMs}ms`, true);
-    if (abortedBeforeSend) throw new ProviderError('OpenRouter request aborted before it was sent', false);
-    if (signal?.aborted) throw new AbortedAfterSend('OpenRouter request aborted', false);
-    throw new ProviderError(redact(`OpenRouter network error: ${describe(e)}`), true);
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', forwardAbort);
-  }
-  let json: unknown;
-  let parsed = true;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    parsed = false;
-  }
-  if (status < 200 || status >= 300) {
-    const err = isPlainObject(json) ? json.error : undefined;
-    const message = isPlainObject(err) ? messageOf(err) : redact(text).slice(0, 300) || '(empty body)';
-    const usage = isPlainObject(json) && isPlainObject(json.usage) ? json.usage : undefined;
-    const cost = usage && typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost > 0 ? usage.cost : 0;
-    throw classify(status, redact(message), cost);
-  }
-  if (!parsed) throw new ProviderError(`OpenRouter: malformed response JSON (HTTP ${status})`, false);
-  if (isPlainObject(json) && isPlainObject(json.error)) {
-    const err = json.error;
-    err.message = redact(messageOf(err));
-  }
-  return json;
-}
-
-function classify(status: number, message: string, costUsd = 0): Error {
-  const text = `OpenRouter ${status}: ${message}`;
-  if (status === 402) return new OutOfCreditsError(text, costUsd);
-  // OpenRouter answers 403 when the key's own spend limit is reached: as final as running out of credits.
-  if (status === 403 && /limit/i.test(message) && /key|credit/i.test(message)) return new OutOfCreditsError(text, costUsd);
-  if (status === 408 || status === 429 || status >= 500) return new ProviderError(text, true, status, costUsd);
-  return new ProviderError(text, false, status, costUsd);
-}
-
-function messageOf(err: JsonObject): string {
-  return typeof err.message === 'string' ? err.message : 'unknown error';
 }
 
 /** A per-token price is valid only if it is a finite number >= 0 (null, "", non-numeric and negative mean "no price"). */
@@ -265,35 +201,4 @@ function validPrice(v: unknown): number | null {
 
 function tokensKnown(usage: JsonObject): boolean {
   return [usage.prompt_tokens, usage.completion_tokens].every((t) => typeof t === 'number' && Number.isFinite(t) && t >= 0);
-}
-
-function numberOr(v: unknown, fallback: number): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
-}
-
-function describe(e: unknown): string {
-  if (!(e instanceof Error)) return String(e);
-  return e.cause instanceof Error ? `${e.message} (${e.cause.message})` : e.message;
-}
-
-function toWireMessage(m: ChatMessage): JsonObject {
-  switch (m.role) {
-    case 'system':
-    case 'user':
-      return { role: m.role, content: m.content };
-    case 'assistant':
-      return {
-        role: 'assistant',
-        content: m.content,
-        ...(m.toolCalls && m.toolCalls.length > 0
-          ? { tool_calls: m.toolCalls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })) }
-          : {}),
-        // Reasoning models (Anthropic, Gemini) need their reasoning blocks back, unchanged, to continue a tool-call turn.
-        ...(isPlainObject(m.providerMetadata) && m.providerMetadata.reasoning_details !== undefined
-          ? { reasoning_details: m.providerMetadata.reasoning_details }
-          : {}),
-      };
-    case 'tool':
-      return { role: 'tool', tool_call_id: m.toolCallId, content: m.content };
-  }
 }

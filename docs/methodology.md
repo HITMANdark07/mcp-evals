@@ -94,6 +94,18 @@ The cap is checked before every model call, so it is **per-call granular**: spen
 - The filesystem server has no content search, so it must read files to answer; that difference is what the head-to-head measures.
 - The harness author also wrote NeatCode. Tasks, answer keys and graders are public in `suites/`, and every trace is published, so the comparison can be audited.
 
+## Local models (OpenAI-compatible servers)
+
+`run --provider openai-compatible --base-url <url>` sends the same requests (same system prompt, tool schemas, temperature 0, limits and graders) to a local or self-hosted server that speaks the OpenAI chat-completions API (Ollama, LM Studio, vLLM, llama.cpp server). Differences from OpenRouter runs:
+
+- Results record every model's provider as `openai-compatible`; no provider pin is sent (a suite's pin, if any, is ignored), and the request carries no OpenRouter-specific fields.
+- **Cost is not measured.** Local servers report no price, so every call is recorded as $0 by design (any `usage.cost` a server sends is ignored). This is not an unknown cost: such a run never stops with `cost could not be determined`. The budget cap still applies but never trips, and the pre-flight estimate is $0. Do not use this provider for a paid hosted API if you rely on the budget cap.
+- **Provider-reported prompt tokens** come from the server's `usage` when it sends one; servers that omit it are recorded as 0. The headline context-token metric (o200k tokens of tool results) is measured by the harness and is unaffected.
+- Retries, timeouts and error classes are the same as for OpenRouter (429, 5xx, network errors and request timeouts are retried; other 4xx are not); there is no out-of-credits stop.
+- Pre-flight checks that every planned model (and the judge, for suites with `llm_judge` tasks) is listed by `GET {base}/models`.
+
+Local runs are **not comparable** with hosted runs on cost or latency (latency depends on the local hardware, quantization and server settings), and a local model id such as `qwen3:8b` names whatever weights and quantization the server has under that tag. Treat local results as checks, not leaderboard numbers, and do not publish them as `data/latest.json`.
+
 ## Data layout
 
 `data/runs/<runId>/results.json` (schema v2), `data/runs/<runId>/traces.jsonl.gz` (one JSON trace per run), and `data/latest.json` (a copy of the latest full run's results). Written by `mcp-evals publish <results.json> --traces <traces.jsonl> [--latest]`. `publish` refuses partial results unless `--allow-partial` is given — so `publish --latest` never makes a partial run the latest one by accident — and refuses to overwrite a published run. The `runId` must be a single safe path segment (letters, digits, `.`, `_`, `-`). `publish` also refuses (exit 2) results or traces that contain `sk-or-` or the current `OPENROUTER_API_KEY`, and warns when traces contain `/Users/` paths.

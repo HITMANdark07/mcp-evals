@@ -10,6 +10,7 @@ import {
   InfraError,
   loadSuite,
   MockProvider,
+  OPENAI_COMPATIBLE_PROVIDER,
   parseMockScript,
   previewPlan,
   ResultsSchema,
@@ -29,12 +30,14 @@ import {
 import { fsReason, writeFileAtomic } from '../files.js';
 import { formatTable, usd } from '../report/table.js';
 import { CLI_VERSION, harnessCommit } from '../version.js';
-import { openRouterPreflight } from './preflight.js';
+import { openAICompatiblePreflight, openRouterPreflight } from './preflight.js';
 
 export interface RunCommandOptions {
   suites: string[];
-  /** 'openrouter' (CLI default) or 'mock'. */
+  /** 'openrouter' (CLI default), 'openai-compatible' (local servers such as Ollama) or 'mock'. */
   provider: string;
+  /** With 'openai-compatible': the server's base URL (default: env OPENAI_COMPATIBLE_BASE_URL). */
+  baseUrl?: string;
   mockScript?: string;
   models?: string[];
   servers?: string[];
@@ -57,7 +60,7 @@ export interface RunCommandOptions {
   retries?: number;
   connector?: Connector;
   log?: (line: string) => void;
-  /** Environment to read OPENROUTER_API_KEY from (default process.env). */
+  /** Environment to read OPENROUTER_API_KEY, OPENAI_COMPATIBLE_API_KEY and OPENAI_COMPATIBLE_BASE_URL from (default process.env). */
   env?: Record<string, string | undefined>;
   /** Test seam: point the OpenRouter client at a local fake server. */
   openRouterBaseUrl?: string;
@@ -70,8 +73,18 @@ export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: numb
   const log = o.log ?? ((line: string) => process.stdout.write(`${line}\n`));
   const now = o.now ?? (() => new Date());
   try {
-    if (o.provider !== 'openrouter' && o.provider !== 'mock') throw new ConfigError(`unknown provider "${o.provider}" (supported: openrouter, mock)`);
-    const suites = await Promise.all(o.suites.map(readSuite));
+    if (!PROVIDERS.includes(o.provider)) throw new ConfigError(`unknown provider "${o.provider}" (supported: ${PROVIDERS.join(', ')})`);
+    const env = o.env ?? process.env;
+    const local = o.provider === OPENAI_COMPATIBLE_PROVIDER;
+    if (o.baseUrl !== undefined && !local) throw new ConfigError(`--base-url only applies with --provider ${OPENAI_COMPATIBLE_PROVIDER}`);
+    const baseUrl = local ? (o.baseUrl ?? env.OPENAI_COMPATIBLE_BASE_URL)?.trim() : undefined;
+    if (local && !baseUrl) {
+      throw new ConfigError(
+        `--provider ${OPENAI_COMPATIBLE_PROVIDER} needs the server's base URL: pass --base-url (e.g. http://localhost:11434/v1 for Ollama) or set OPENAI_COMPATIBLE_BASE_URL`,
+      );
+    }
+    const loaded = await Promise.all(o.suites.map(readSuite));
+    const suites = local ? loaded.map((s) => forServedModels(s, o.models)) : loaded;
     const filters = {
       ...(o.models ? { models: o.models } : {}),
       ...(o.servers ? { servers: o.servers } : {}),
@@ -93,22 +106,18 @@ export async function runCommand(o: RunCommandOptions): Promise<{ exitCode: numb
     const plan = previewPlan({ suites, ...filters, skip });
     const fixtures = new FixtureManager({ cacheDir: resolve(o.cacheDir) });
     const connector = o.connector ?? stdioConnector;
-    const provider: ModelProvider =
-      o.provider === 'openrouter'
-        ? await openRouterPreflight({
-            suites,
-            ...(o.servers ? { servers: o.servers } : {}),
-            plan,
-            fixtures,
-            connector,
-            env: o.env ?? process.env,
-            ...(o.openRouterBaseUrl ? { baseUrl: o.openRouterBaseUrl } : {}),
-            ...(o.budgetUsd !== undefined ? { budgetUsd: o.budgetUsd } : {}),
-            ...(o.yes ? { yes: true } : {}),
-            ...(o.estimateFrom ? { estimateFrom: o.estimateFrom } : {}),
-            log,
-          })
-        : await makeMockProvider(o);
+    const common = { suites, ...(o.servers ? { servers: o.servers } : {}), plan, fixtures, connector, env, log };
+    let provider: ModelProvider;
+    if (local) provider = await openAICompatiblePreflight({ ...common, baseUrl: baseUrl ?? '' });
+    else if (o.provider === 'openrouter') {
+      provider = await openRouterPreflight({
+        ...common,
+        ...(o.openRouterBaseUrl ? { baseUrl: o.openRouterBaseUrl } : {}),
+        ...(o.budgetUsd !== undefined ? { budgetUsd: o.budgetUsd } : {}),
+        ...(o.yes ? { yes: true } : {}),
+        ...(o.estimateFrom ? { estimateFrom: o.estimateFrom } : {}),
+      });
+    } else provider = await makeMockProvider(o);
     // A bad fixture must fail before the run cache exists and before any spend.
     for (const suite of suites) {
       if (suite.fixture && plan.remaining.some((c) => c.suite === suite.name)) await fixtures.prepare(suite.fixture);
@@ -217,6 +226,7 @@ function stoppedLine(run: RunSuitesOutput, o: RunCommandOptions): string | undef
 function resumeCommand(o: RunCommandOptions, runId: string): string {
   const invocation = o.invocation ?? process.argv.slice(0, 2);
   const args = ['run', ...o.suites, '--resume', runId, '--provider', o.provider];
+  if (o.baseUrl !== undefined) args.push('--base-url', o.baseUrl);
   if (o.mockScript !== undefined) args.push('--mock-script', o.mockScript);
   if (o.models !== undefined) args.push('--models', o.models.join(','));
   if (o.servers !== undefined) args.push('--servers', o.servers.join(','));
@@ -231,6 +241,22 @@ function resumeCommand(o: RunCommandOptions, runId: string): string {
 
 function shellQuote(s: string): string {
   return /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.split("'").join(`'\\''`)}'`;
+}
+
+const PROVIDERS = ['openrouter', OPENAI_COMPATIBLE_PROVIDER, 'mock'];
+
+/**
+ * A suite as an openai-compatible run sees it: `--models` names the served models to run, which need not be listed
+ * in the suite (local ids such as qwen3:8b rarely are), and provider pins do not apply, so results record every
+ * model (and the judge) under the provider `openai-compatible`.
+ */
+function forServedModels(suite: Suite, models?: string[]): Suite {
+  return {
+    ...suite,
+    models: models ? [...new Set(models)] : suite.models,
+    modelPins: {},
+    ...(suite.judge ? { judge: { id: suite.judge.id, provider: OPENAI_COMPATIBLE_PROVIDER } } : {}),
+  };
 }
 
 async function makeMockProvider(o: RunCommandOptions): Promise<ModelProvider> {

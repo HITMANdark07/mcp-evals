@@ -38,6 +38,12 @@ describe('main', () => {
     });
   });
 
+  it('parses --provider openai-compatible with --base-url', async () => {
+    const { calls, deps } = stub();
+    expect(await main(['run', 'a.yaml', '--provider', 'openai-compatible', '--base-url', 'http://localhost:11434/v1', '--models', 'qwen3:8b'], deps)).toBe(0);
+    expect(calls[0]![1]).toMatchObject({ provider: 'openai-compatible', baseUrl: 'http://localhost:11434/v1', models: ['qwen3:8b'] });
+  });
+
   it('returns the command exit code (compare regression → 1) with compare defaults', async () => {
     const { calls, deps } = stub();
     expect(await main(['compare', 'a.json', 'b.json'], deps)).toBe(1);

@@ -117,3 +117,21 @@ export function catalogIssues(o: { suites: Suite[]; planned: PlannedCell[]; cata
   }
   return issues;
 }
+
+/** Everything that would make an OpenAI-compatible (local) run fail: a planned model or a needed judge the server does not list. Pins are not needed. */
+export function servedModelIssues(o: { suites: Suite[]; planned: PlannedCell[]; served: ReadonlySet<string> }): string[] {
+  const issues: string[] = [];
+  const listed = () => (o.served.size > 0 ? [...o.served].sort().join(', ') : '(none)');
+  for (const suite of o.suites) {
+    const models = [...new Set(o.planned.filter((p) => p.suite === suite.name).map((p) => p.model))];
+    if (models.length === 0) continue;
+    for (const model of models) {
+      if (!o.served.has(model)) issues.push(`suite ${suite.name}: model "${model}" is not listed by the server (GET /models lists: ${listed()})`);
+    }
+    const judged = suite.tasks.some((t) => t.graders.some((g) => g.type === 'llm_judge'));
+    if (judged && suite.judge && !o.served.has(suite.judge.id)) {
+      issues.push(`suite ${suite.name}: judge "${suite.judge.id}" is not listed by the server (GET /models lists: ${listed()})`);
+    }
+  }
+  return issues;
+}
