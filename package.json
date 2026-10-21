@@ -9,7 +9,7 @@
   "scripts": {
     "build": "pnpm -r --filter \"./packages/*\" build",
     "test": "vitest run",
-    "typecheck": "pnpm --filter @mcp-evals/core build && pnpm -r --filter \"./packages/*\" typecheck"
+    "typecheck": "pnpm --filter @mcp-evals/core build && pnpm -r --filter \"./packages/*\" typecheck && tsc -p scripts/tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
