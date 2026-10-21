@@ -77,6 +77,21 @@ What the traces show, as measured:
 
 Scope and budget: the agreed cap for the first real run was $10. A smoke run (2 tasks, all four models, 1 repeat; run `2026-10-16T10-22-05-097Z-fa96ce`, $1.26) measured per-run cost. `anthropic/claude-sonnet-5.5` cost about $0.19 per run there (4/4 passes), which would have put the full run over the cap, so it was **dropped from the full run for budget reasons**, not because of its results. The full run cost **$7.10** (smoke + full: $8.36). It took four invocations of the same run id: the first two stopped after 3 consecutive `429` responses from Alibaba for Qwen (OpenRouter showed the endpoint up, and the 429s cleared after waiting), the third finished every remaining run with 4 Qwen runs still ending in a `429` error, and a final `--retry-errors` re-ran those 4, all of which completed as pass or fail.
 
+## Free-model run (2026-10-21)
+
+Run `2026-10-21T10-02-33-571Z-ab2e45`, harness commit `804a758`: suite `code-navigation`, NeatCode **0.1.5** vs. the filesystem server 1.0.0, 12 tasks × 1 repeat × 2 servers × 2 models = 48 runs, every cell complete, **$0**. Models: `minimax/minimax-m3.1-flash:free` → `minimax` and `nvidia/nemotron-3-ultra-550b-a55b:free` → `nvidia`, the free variants of each model, pinned like the paid ones. Free endpoints are rate-limited and their providers may log prompts; that is acceptable here because the fixture and tasks are public.
+
+| Server | Model | Success (95% CI) | Context tokens, median | Steps |
+|---|---|---|---|---|
+| neatcode | Nemotron 3 Ultra (free) | 75% [47–91%] | 3,919 | 6.1 |
+| filesystem | Nemotron 3 Ultra (free) | 42% [19–68%] | 37,225 | 9.2 |
+| neatcode | MiniMax M3.1 Flash (free) | 42% [19–68%] | 14,926 | 9.9 |
+| filesystem | MiniMax M3.1 Flash (free) | 42% [19–68%] | 35,425 | 9.8 |
+
+- `google/gemma-4-31b-it:free` was planned too; its free tier returned repeated `429`s, so the run stopped and was restarted without it (the stopped attempt is not published).
+- Two runs first ended in infrastructure errors (an `npx` setup and a server start timing out) and were re-run with `--retry-errors`; both completed as fails.
+- Not comparable with the first run: different models, NeatCode 0.1.5 instead of 0.1.4, and 1 repeat instead of 2.
+
 ## Budget, partial runs and completeness
 
 Every run invocation has a cap (`--budget-usd`). Before spending, the CLI checks the key, the model catalog (every model exists, supports tools, has a pin), starts every server once, and prints the planned runs and an estimate (measured cost per run from an earlier run where available, otherwise catalog price × 25k prompt + 1k completion tokens per run); it refuses to start when the estimate exceeds the cap unless `--yes`.

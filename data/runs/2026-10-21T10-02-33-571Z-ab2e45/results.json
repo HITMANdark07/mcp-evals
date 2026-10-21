@@ -1,0 +1,506 @@
+{
+  "schemaVersion": 2,
+  "harnessVersion": "0.2.0",
+  "harnessCommit": "804a758",
+  "runId": "2026-10-21T10-02-33-571Z-ab2e45",
+  "startedAt": "2026-10-21T10:02:33.571Z",
+  "finishedAt": "2026-10-21T16:20:59.974Z",
+  "partial": false,
+  "totalCostUsd": 0,
+  "suites": [
+    {
+      "suite": "code-navigation",
+      "suiteVersion": 1,
+      "fixture": {
+        "git": "https://github.com/honojs/hono",
+        "ref": "08a023cbfde55b434fb0fb30fae35d42e4bf20aa"
+      },
+      "servers": {
+        "neatcode": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@neatcodeai/mcp@0.1.5"
+          ],
+          "setup": "npx -y @neatcodeai/cli@0.1.5 init",
+          "version": "0.1.5"
+        },
+        "filesystem": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-filesystem@1.0.0",
+            "{fixture}"
+          ],
+          "setup": null,
+          "version": "1.0.0"
+        }
+      },
+      "models": [
+        {
+          "id": "minimax/minimax-m3.1-flash:free",
+          "provider": "minimax"
+        },
+        {
+          "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "provider": "nvidia"
+        }
+      ],
+      "judge": null,
+      "cells": [
+        {
+          "server": "neatcode",
+          "model": "minimax/minimax-m3.1-flash:free",
+          "runs": 12,
+          "plannedRuns": 12,
+          "complete": true,
+          "successRate": 0.4166666666666667,
+          "successRateWithErrors": 0.4166666666666667,
+          "successCi95": [
+            0.19325746190524656,
+            0.6804926643446272
+          ],
+          "toolAccuracy": null,
+          "invalidToolCallRate": 0,
+          "contextTokensPerTask": {
+            "mean": 17080.75,
+            "median": 14926
+          },
+          "providerPromptTokensPerTask": {
+            "mean": 186863.25,
+            "median": 183174.5
+          },
+          "stepsPerTask": 9.916666666666666,
+          "latencyMsP50": 37096.5,
+          "costUsdPerTask": 0,
+          "errorRate": 0,
+          "tasks": [
+            {
+              "id": "router-implementations",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "de0722860a19a73a"
+            },
+            {
+              "id": "compose-callers",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "b256cb8616fd380f"
+            },
+            {
+              "id": "strict-path",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "ebe590ca750c74b6"
+            },
+            {
+              "id": "preset-routers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "75c9593fe78cac54"
+            },
+            {
+              "id": "cookie-helper-importers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "5e026ce2ba1062b8"
+            },
+            {
+              "id": "timing-safe-callers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "d5ee52bf7464bfbe"
+            },
+            {
+              "id": "rename-check-optional-parameter",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "520d728dc35e0341"
+            },
+            {
+              "id": "two-merge-paths",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "2997cfcf455fff2d"
+            },
+            {
+              "id": "fetch-to-compose",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "dd57f5b2259ef3ab"
+            },
+            {
+              "id": "default-error-handler",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "52a089e10c5c2364"
+            },
+            {
+              "id": "http-exception-throwers",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "4c72beede7bedb45"
+            },
+            {
+              "id": "smart-router-fallback",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "27531734742f45e5"
+            }
+          ]
+        },
+        {
+          "server": "neatcode",
+          "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "runs": 12,
+          "plannedRuns": 12,
+          "complete": true,
+          "successRate": 0.75,
+          "successRateWithErrors": 0.75,
+          "successCi95": [
+            0.46768966087934005,
+            0.9110599603710386
+          ],
+          "toolAccuracy": null,
+          "invalidToolCallRate": 0,
+          "contextTokensPerTask": {
+            "mean": 5900.583333333333,
+            "median": 3918.5
+          },
+          "providerPromptTokensPerTask": {
+            "mean": 87418,
+            "median": 47414
+          },
+          "stepsPerTask": 6.083333333333333,
+          "latencyMsP50": 24249.5,
+          "costUsdPerTask": 0,
+          "errorRate": 0,
+          "tasks": [
+            {
+              "id": "router-implementations",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "b39b2100451a1501"
+            },
+            {
+              "id": "compose-callers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "2e28cc54d76886ef"
+            },
+            {
+              "id": "strict-path",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "f982090af037d079"
+            },
+            {
+              "id": "preset-routers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "f729a3c882c6eadd"
+            },
+            {
+              "id": "cookie-helper-importers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "ef25a769ff64337c"
+            },
+            {
+              "id": "timing-safe-callers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "aeb29a3d3192bf4e"
+            },
+            {
+              "id": "rename-check-optional-parameter",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "5f3913e2656b2ed2"
+            },
+            {
+              "id": "two-merge-paths",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "6ec6f882c87e43e3"
+            },
+            {
+              "id": "fetch-to-compose",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "a843fdbec446bfd6"
+            },
+            {
+              "id": "default-error-handler",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "b1e46447c848dea0"
+            },
+            {
+              "id": "http-exception-throwers",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "2a8302935dbdf60f"
+            },
+            {
+              "id": "smart-router-fallback",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "4239f2a18de3c7fb"
+            }
+          ]
+        },
+        {
+          "server": "filesystem",
+          "model": "minimax/minimax-m3.1-flash:free",
+          "runs": 12,
+          "plannedRuns": 12,
+          "complete": true,
+          "successRate": 0.4166666666666667,
+          "successRateWithErrors": 0.4166666666666667,
+          "successCi95": [
+            0.19325746190524656,
+            0.6804926643446272
+          ],
+          "toolAccuracy": null,
+          "invalidToolCallRate": 0,
+          "contextTokensPerTask": {
+            "mean": 44000.25,
+            "median": 35424.5
+          },
+          "providerPromptTokensPerTask": {
+            "mean": 275319.4166666667,
+            "median": 189949.5
+          },
+          "stepsPerTask": 9.833333333333334,
+          "latencyMsP50": 53556.5,
+          "costUsdPerTask": 0,
+          "errorRate": 0,
+          "tasks": [
+            {
+              "id": "router-implementations",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "47bfc0b5ca91bc52"
+            },
+            {
+              "id": "compose-callers",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "0deef7ef6dc7a974"
+            },
+            {
+              "id": "strict-path",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "461ac6f91b4acffd"
+            },
+            {
+              "id": "preset-routers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "804fd6ef833273b2"
+            },
+            {
+              "id": "cookie-helper-importers",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "785c314e8b120874"
+            },
+            {
+              "id": "timing-safe-callers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "c211b03713047dfe"
+            },
+            {
+              "id": "rename-check-optional-parameter",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "f810f6c5fa15f16c"
+            },
+            {
+              "id": "two-merge-paths",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "37f5d3281e6243ea"
+            },
+            {
+              "id": "fetch-to-compose",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "0573007799801027"
+            },
+            {
+              "id": "default-error-handler",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "4fd5461092389d27"
+            },
+            {
+              "id": "http-exception-throwers",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "d8e516ae151273b9"
+            },
+            {
+              "id": "smart-router-fallback",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "aa5a67cbb0c2ebd1"
+            }
+          ]
+        },
+        {
+          "server": "filesystem",
+          "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "runs": 12,
+          "plannedRuns": 12,
+          "complete": true,
+          "successRate": 0.4166666666666667,
+          "successRateWithErrors": 0.4166666666666667,
+          "successCi95": [
+            0.19325746190524656,
+            0.6804926643446272
+          ],
+          "toolAccuracy": null,
+          "invalidToolCallRate": 0,
+          "contextTokensPerTask": {
+            "mean": 63372.916666666664,
+            "median": 37224.5
+          },
+          "providerPromptTokensPerTask": {
+            "mean": 421734.6666666667,
+            "median": 155537
+          },
+          "stepsPerTask": 9.166666666666666,
+          "latencyMsP50": 52916,
+          "costUsdPerTask": 0,
+          "errorRate": 0,
+          "tasks": [
+            {
+              "id": "router-implementations",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "85637567f473e339"
+            },
+            {
+              "id": "compose-callers",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "01f5328c7285eb47"
+            },
+            {
+              "id": "strict-path",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "abb785c618a62d58"
+            },
+            {
+              "id": "preset-routers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "39292d22db642cd8"
+            },
+            {
+              "id": "cookie-helper-importers",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "8c1945243db232b9"
+            },
+            {
+              "id": "timing-safe-callers",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "73c44e290916e86d"
+            },
+            {
+              "id": "rename-check-optional-parameter",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "89a27fca2137f728"
+            },
+            {
+              "id": "two-merge-paths",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "00b35d7d469a765c"
+            },
+            {
+              "id": "fetch-to-compose",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "12c6ad9c2aad66d3"
+            },
+            {
+              "id": "default-error-handler",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "e2e470de221c32fd"
+            },
+            {
+              "id": "http-exception-throwers",
+              "passes": 1,
+              "fails": 0,
+              "errors": 0,
+              "traceRef": "3583ba2bdf7e3dae"
+            },
+            {
+              "id": "smart-router-fallback",
+              "passes": 0,
+              "fails": 1,
+              "errors": 0,
+              "traceRef": "63d5bda7773a5c03"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

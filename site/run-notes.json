@@ -3,5 +3,11 @@
     "First real run: NeatCode 0.1.4 against the filesystem MCP server 1.0.0 on Hono v4.13.13, 2 repeats per task. anthropic/claude-sonnet-5.5 was dropped from this run for budget reasons, not because of its results.",
     "The runs executed at harness commit 691c0ec. results.json was then re-aggregated from the same run records at f692ef5 (tool accuracy fix, invalid tool call rate added; no run, grade or cost changed), so the harness commit shown is f692ef5 and the finish time is the re-aggregation time.",
     "NeatCode 0.1.4 did not index functions written as export const f = (...) => ..., which Hono uses for most of its functions; the methodology describes how this showed up in the traces. These numbers are for 0.1.4 as measured."
+  ],
+  "2026-10-21T10-02-33-571Z-ab2e45": [
+    "Free-model run: NeatCode 0.1.5 against the filesystem MCP server 1.0.0 on the same 12 Hono tasks, 1 repeat per task, with two free OpenRouter models (the :free variants: rate-limited, and their providers may log prompts, which is fine for this public fixture). It cost $0.",
+    "Not directly comparable with the first run: different models, a newer NeatCode, and one repeat instead of two, so the intervals are wide.",
+    "google/gemma-4-31b-it:free was planned too, but its free tier returned repeated 429 rate-limit errors, so it was left out (that stopped attempt is not published).",
+    "Two runs first ended in infrastructure errors (an npx setup and a server start timing out) and were re-run with --retry-errors; both then completed as fails."
   ]
 }

@@ -136,7 +136,8 @@ describe('build-site with several runs', () => {
     const embedded = JSON.parse(html.slice(html.indexOf('>', html.indexOf('id="mcpbench-data"')) + 1, html.lastIndexOf('</script>'))) as {
       results: Record<string, Results>;
     };
-    expect(Object.keys(embedded.results).sort()).toEqual([base.runId, partial.runId].sort());
+    // Every published run plus the synthetic partial one.
+    expect(Object.keys(embedded.results).sort()).toEqual([...readdirSync(join(DATA, 'runs')), partial.runId].sort());
     const render = (await import(join(ROOT, 'site', 'render.js'))) as { renderRun: (r: Results, info: object) => string };
     const partialHtml = render.renderRun(partial, {});
     expect(partialHtml).toContain('Partial run:');

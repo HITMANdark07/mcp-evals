@@ -23,6 +23,19 @@ Benchmark MCP servers and the models that use them. mcp-evals runs the same task
 
 Full results: [`data/latest.json`](data/latest.json) · traces: [`data/runs/`](data/runs/) · how it is measured, fairness rules and limitations: [`docs/methodology.md`](docs/methodology.md).
 
+## Free-model run with NeatCode 0.1.5 (2026-10-21)
+
+Same 12 tasks, 1 repeat, NeatCode 0.1.5 vs. the filesystem server, two free OpenRouter models (`:free` variants). 48 runs, every cell complete, $0. One repeat gives wide intervals, and the models differ from the first run, so read it as a second data point, not a ranking.
+
+| Server | Model | Success (95% CI) | Context tokens, median |
+|---|---|---|---|
+| neatcode | Nemotron 3 Ultra (free) | 75% [47–91%] | 3,919 |
+| filesystem | Nemotron 3 Ultra (free) | 42% [19–68%] | 37,225 |
+| neatcode | MiniMax M3.1 Flash (free) | 42% [19–68%] | 14,926 |
+| filesystem | MiniMax M3.1 Flash (free) | 42% [19–68%] | 35,425 |
+
+Data: [`data/runs/2026-10-21T10-02-33-571Z-ab2e45/`](data/runs/2026-10-21T10-02-33-571Z-ab2e45/).
+
 ## What it measures
 
 Per server × model cell: task success (with a Wilson 95% interval), success counting infrastructure errors as failures, invalid tool calls, tool accuracy (where a task has tool graders), context tokens returned by tool calls (one tokenizer for every model), provider-reported prompt tokens, steps, latency and cost. Infrastructure failures (rate limits, crashes) are retried and reported as an error rate instead of counting against a model.
@@ -103,7 +116,7 @@ Suites are YAML: servers (command, args, setup), models with their pinned provid
 
 ## Status
 
-Milestones 1 (runner, graders, CLI) and 2 (OpenRouter runs, results schema v2, resume, `compare`, `report`, `publish`, first real run) are done. The leaderboard page is built from `data/` and deployed to GitHub Pages by `.github/workflows/pages.yml`. Next: a GitHub Action that comments on PRs and gates CI, and an npm release.
+Milestones 1 (runner, graders, CLI) and 2 (OpenRouter runs, results schema v2, resume, `compare`, `report`, `publish`, first real run) are done. The leaderboard page is built from `data/` and deployed to GitHub Pages by `.github/workflows/pages.yml`. The CLI is on npm as `mcpbench`, and a GitHub Action (`uses: HITMANdark07/mcp-evals@v0`) gates pull requests on regressions. Next: a full re-run with NeatCode 0.1.5 on the paid models, harder tasks, and the general-tools suite.
 
 ## License
 
