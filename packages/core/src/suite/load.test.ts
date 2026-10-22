@@ -216,3 +216,17 @@ describe('loadSuite', () => {
     expect(s.tasks).toHaveLength(1);
   });
 });
+
+describe('task vars', () => {
+  const withVars = (vars: string) =>
+    yaml({ tasks: ['tasks:', '  - id: t', '    prompt: "Do {task}"', `    vars: ${vars}`, '    graders: [{ type: tool_called, tool: echo }]'].join('\n') });
+  it('parses vars into the task', () => {
+    expect(parseSuite(withVars('{ task: damaged_item, seed: "7" }')).tasks[0]!.vars).toEqual({ task: 'damaged_item', seed: '7' });
+  });
+  it('rejects reserved and malformed names', () => {
+    expect(() => parseSuite(withVars('{ fixture: x }'))).toThrow(/reserved/);
+    expect(() => parseSuite(withVars('{ suite_dir: x }'))).toThrow(/reserved/);
+    expect(() => parseSuite(withVars('{ Seed: "1" }'))).toThrow(/vars/);
+    expect(() => parseSuite(withVars('{ seed1: "1" }'))).toThrow(/vars/);
+  });
+});

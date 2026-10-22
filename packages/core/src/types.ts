@@ -51,6 +51,8 @@ export interface TaskSpec {
   servers?: string[];
   maxSteps?: number;
   timeoutS?: number;
+  /** Substituted as {name} into the server's command, args, env and setup, and into the prompt. */
+  vars?: Record<string, string>;
   graders: GraderSpec[];
 }
 

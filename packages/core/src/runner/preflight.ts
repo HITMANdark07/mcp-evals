@@ -5,7 +5,7 @@ import { runSetup, setupEnv } from '../mcp/setup.js';
 import type { CatalogModel, ModelPrice } from '../providers/openrouter.js';
 import type { Results } from '../results/schema.js';
 import type { Connector, McpConnection, PlannedCell, Suite } from '../types.js';
-import { substituteVars } from '../util.js';
+import { substituteVars, suiteDir } from '../util.js';
 
 /** Fallback cost model when no measured run exists (spec §3.6). */
 export const ASSUMED_PROMPT_TOKENS_PER_RUN = 25_000;
@@ -29,7 +29,8 @@ export async function checkServers(o: { suites: Suite[]; servers?: string[]; con
       try {
         ws = await o.fixtures.createWorkspace(suite.fixture);
         const dir = await realpath(ws.dir);
-        const vars = { fixture: dir };
+        const firstTask = suite.tasks.find((t) => !t.servers || t.servers.includes(name));
+        const vars = { ...firstTask?.vars, fixture: dir, suite_dir: suiteDir(suite.source) };
         if (server.setup) await runSetup(substituteVars(server.setup, vars), dir, setupEnv(server.env, vars));
         conn = await o.connector(server, { cwd: dir, vars });
         const tools = await conn.listTools();

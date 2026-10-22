@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { dirname, resolve } from 'node:path';
 import type { JsonObject } from './types.js';
 
 export function runKey(parts: { suite: string; server: string; model: string; task: string; repeat: number }): string {
@@ -41,4 +42,9 @@ export const PROVIDER_BACKOFF_MS: readonly number[] = [2_000, 10_000, 30_000];
 
 export function providerBackoffMs(attempt: number): number {
   return PROVIDER_BACKOFF_MS[Math.min(Math.max(attempt, 1), PROVIDER_BACKOFF_MS.length) - 1]!;
+}
+
+/** Absolute directory of a suite file, for the {suite_dir} variable. */
+export function suiteDir(source: string): string {
+  return dirname(resolve(source));
 }

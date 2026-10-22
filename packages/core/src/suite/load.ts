@@ -22,6 +22,8 @@ const MODEL_ID = /^[a-z0-9][\w.-]*\/[\w.:-]+$/i;
 const LOCAL_MODEL_ID = /^[a-z0-9][\w.-]*:[\w.-]+$/i;
 const UNPINNED = /([:-]latest$)|(^openrouter\/auto$)/i;
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
+const VAR_NAME = /^[a-z_]+$/;
+const RESERVED_VARS = new Set(['fixture', 'suite_dir']);
 
 const serverRef = { server: z.string().optional() };
 const budget = { value: z.number().int().positive(), strict: z.boolean().default(false), ...serverRef };
@@ -58,6 +60,7 @@ const TaskSchema = z
     servers: z.array(z.string()).min(1).optional(),
     max_steps: z.number().int().positive().optional(),
     timeout_s: z.number().positive().optional(),
+    vars: z.record(z.string().regex(VAR_NAME, 'vars names must be lowercase letters or _'), z.string()).optional(),
     graders: z.array(GraderSchema).default([]),
   })
   .strict();
@@ -189,6 +192,11 @@ function semanticIssues(s: RawSuite): string[] {
       }
     });
   }
+  for (const t of s.tasks) {
+    for (const name of Object.keys(t.vars ?? {})) {
+      if (RESERVED_VARS.has(name)) issues.push(`tasks.${t.id}.vars: "${name}" is reserved`);
+    }
+  }
   return issues;
 }
 
@@ -210,6 +218,7 @@ function toSuite(s: RawSuite, source: string): Suite {
     ...(t.servers ? { servers: t.servers } : {}),
     ...(t.max_steps !== undefined ? { maxSteps: t.max_steps } : {}),
     ...(t.timeout_s !== undefined ? { timeoutS: t.timeout_s } : {}),
+    ...(t.vars !== undefined ? { vars: t.vars } : {}),
     graders: t.graders.map(toGrader),
   }));
   const pinned = s.models.filter((m): m is RawPinned => typeof m !== 'string');

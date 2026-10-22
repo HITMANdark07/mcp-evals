@@ -6,7 +6,7 @@ import { describeFailures, gradersCostUsd, runGraders, taskPassed, toolSelection
 import { runSetup, setupEnv } from '../mcp/setup.js';
 import { convertTools } from '../tools/convert.js';
 import type { Connector, GraderResult, McpConnection, ModelProvider, Outcome, PlannedCell, RunRecord, Suite, TaskSpec } from '../types.js';
-import { providerBackoffMs, runKey, sleep as realSleep, substituteVars } from '../util.js';
+import { providerBackoffMs, runKey, sleep as realSleep, substituteVars, suiteDir } from '../util.js';
 
 export interface PlanOptions {
   suites: Suite[];
@@ -227,7 +227,7 @@ async function runOne(o: RunSuitesOptions, target: RunTarget, overBudget: (runCo
       ws = await o.fixtures.createWorkspace(suite.fixture);
       // The real path (macOS tmp is /var → /private/var), so the prompt and the server args name the same directory.
       const fixtureDir = await realpath(ws.dir);
-      const vars = { fixture: fixtureDir };
+      const vars = { ...task.vars, fixture: fixtureDir, suite_dir: suiteDir(suite.source) };
       if (server.setup) await runSetup(substituteVars(server.setup, vars), fixtureDir, setupEnv(server.env, vars));
       conn = await o.connector(server, { cwd: fixtureDir, vars });
       serverVersion = conn.serverVersion?.();

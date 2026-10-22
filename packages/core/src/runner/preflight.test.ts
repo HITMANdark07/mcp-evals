@@ -147,3 +147,32 @@ describe('servedModelIssues', () => {
     expect(servedModelIssues({ suites: [suite], planned, served: new Set(['acme/a', 'acme/b', 'acme/judge']) })).toEqual([]);
   });
 });
+
+describe('checkServers with task vars', () => {
+  it("starts each server with the vars of the first task that uses it", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const connector = createInMemoryConnector((ctx) => {
+      seen.push(ctx.vars);
+      return buildFakeServer(ctx.cwd);
+    });
+    const s = parseSuite(
+      `
+suite: v
+version: 1
+servers:
+  fake: { command: unused }
+models: [mock/a]
+tasks:
+  - id: a
+    prompt: "A"
+    vars: { task: first }
+  - id: b
+    prompt: "B"
+    vars: { task: second }
+`,
+      '/tmp/suites/v.yaml',
+    );
+    await checkServers({ suites: [s], connector, fixtures: await fixtures() });
+    expect(seen[0]).toMatchObject({ task: 'first', suite_dir: '/tmp/suites' });
+  });
+});

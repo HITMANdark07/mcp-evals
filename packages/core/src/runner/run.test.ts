@@ -669,3 +669,34 @@ tasks:
     expect(out.records).toHaveLength(12);
   });
 });
+
+describe('task vars', () => {
+  it('passes task vars, fixture and suite_dir to the server and the prompt', async () => {
+    const seen: Array<Record<string, string>> = [];
+    const connector = createInMemoryConnector((ctx) => {
+      seen.push(ctx.vars);
+      return buildFakeServer(ctx.cwd);
+    });
+    const suite = parseSuite(
+      `
+suite: vars
+version: 1
+servers:
+  fake: { command: unused }
+models: [mock/a]
+defaults: { repeats: 1, max_steps: 3, timeout_s: 10 }
+tasks:
+  - id: t
+    prompt: "VARS task={task} seed={seed}"
+    vars: { task: damaged_item, seed: "3" }
+    graders: [{ type: answer_contains_all, values: [ok] }]
+`,
+      '/tmp/suites/vars.yaml',
+    );
+    const script = parseMockScript({ entries: [{ match: 'VARS task=damaged_item seed=3', steps: [{ content: 'ok' }] }] });
+    const out = await runSuites(await opts({ suites: [suite], provider: new MockProvider(script), connector }));
+    expect(out.records[0]!.outcome).toBe('pass');
+    expect(seen[0]).toMatchObject({ task: 'damaged_item', seed: '3', suite_dir: '/tmp/suites' });
+    expect(seen[0]!.fixture).toBeTruthy();
+  });
+});
