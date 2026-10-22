@@ -1,6 +1,6 @@
-# mcpbench
+# mcp-arena
 
-Benchmark MCP servers and the models that use them. `mcpbench` runs the same tasks across models and MCP servers, grades the answers, records every model call and tool call, and compares two runs so CI can fail when task success drops or tool results grow.
+Benchmark MCP servers and the models that use them. `mcp-arena` runs the same tasks across models and MCP servers, grades the answers, records every model call and tool call, and compares two runs so CI can fail when task success drops or tool results grow.
 
 This is the CLI of [mcp-evals](https://github.com/HITMANdark07/mcp-evals). Results, traces and the methodology live in the repository:
 
@@ -13,8 +13,8 @@ This is the CLI of [mcp-evals](https://github.com/HITMANdark07/mcp-evals). Resul
 Requires Node 20 or newer.
 
 ```bash
-npm i -g mcpbench       # then: mcpbench --help
-npx mcpbench --help     # or run it without installing
+npm i -g mcp-arena       # then: mcp-arena --help
+npx mcp-arena --help     # or run it without installing
 ```
 
 The package also installs `mcp-evals` as an alias for the same command.
@@ -25,14 +25,14 @@ Model calls go through [OpenRouter](https://openrouter.ai). Set `OPENROUTER_API_
 
 ```bash
 # Run a suite. Prints the plan and a cost estimate first, and stops at the cap.
-mcpbench run suite.yaml --models openai/gpt-6.1-sol,qwen/qwen3.8-flash \
+mcp-arena run suite.yaml --models openai/gpt-6.1-sol,qwen/qwen3.8-flash \
   --budget-usd 5 --out results.json --traces traces.jsonl
 
 # Print results as a table or markdown.
-mcpbench report results.json --format markdown
+mcp-arena report results.json --format markdown
 
 # Compare two runs cell by cell; exits 1 on a regression.
-mcpbench compare base.json results.json --max-success-drop 5 --max-context-increase 20
+mcp-arena compare base.json results.json --max-success-drop 5 --max-context-increase 20
 ```
 
 Runs that stop (budget cap, out of credits, repeated provider errors) print the exact command to resume without re-paying finished runs. `run --provider mock --mock-script script.json` runs offline with a scripted model.

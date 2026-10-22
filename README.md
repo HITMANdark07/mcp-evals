@@ -45,11 +45,11 @@ Per server × model cell: task success (with a Wilson 95% interval), success cou
 Requires Node 20+.
 
 ```bash
-npm i -g mcpbench       # then: mcpbench --help
-npx mcpbench --help     # or run it without installing
+npm i -g mcp-arena       # then: mcp-arena --help
+npx mcp-arena --help     # or run it without installing
 ```
 
-The npm package is [`mcpbench`](https://www.npmjs.com/package/mcpbench) (the CLI also answers to `mcp-evals`). `report` and `compare` work offline; `run` needs `OPENROUTER_API_KEY` in the environment or in a `.env` file in the working directory.
+The npm package is [`mcp-arena`](https://www.npmjs.com/package/mcp-arena) (the CLI also answers to `mcp-evals`). `report` and `compare` work offline; `run` needs `OPENROUTER_API_KEY` in the environment or in a `.env` file in the working directory.
 
 ## Quick start
 
@@ -57,12 +57,12 @@ The suite files are in [`suites/`](suites/) (clone the repository or download on
 
 ```bash
 # A real run: prints the plan and a cost estimate first, and stops at the cap.
-mcpbench run suites/code-navigation.yaml \
+mcp-arena run suites/code-navigation.yaml \
   --models openai/gpt-6.1-sol,google/gemini-3.8-flash,qwen/qwen3.8-flash \
   --budget-usd 10 --out results.json --traces traces.jsonl
 
-mcpbench report results.json --format markdown
-mcpbench compare base.json results.json   # exit 1 on regression
+mcp-arena report results.json --format markdown
+mcp-arena compare base.json results.json   # exit 1 on regression
 ```
 
 Runs that stop (budget cap, out of credits, repeated provider errors) print the exact command to resume without re-paying finished runs. `run --provider mock` runs offline with a scripted model.
@@ -71,7 +71,7 @@ To gate pull requests on regressions, use the GitHub Action: [`docs/github-actio
 
 ### From a checkout (contributors)
 
-Requires pnpm. The commands are the same, with `node packages/cli/dist/index.js` in place of `mcpbench`.
+Requires pnpm. The commands are the same, with `node packages/cli/dist/index.js` in place of `mcp-arena`.
 
 ```bash
 pnpm install && pnpm build
@@ -90,7 +90,7 @@ Any server that speaks the OpenAI chat-completions API with tool calling works w
 ollama pull qwen3:8b
 
 # 2. Run a suite against it (Ollama serves its OpenAI-compatible API under /v1)
-mcpbench run suites/code-navigation.yaml \
+mcp-arena run suites/code-navigation.yaml \
   --provider openai-compatible --base-url http://localhost:11434/v1 \
   --models qwen3:8b --repeats 1 --out local.json --traces local.jsonl
 ```
@@ -116,7 +116,7 @@ Suites are YAML: servers (command, args, setup), models with their pinned provid
 
 ## Status
 
-Milestones 1 (runner, graders, CLI) and 2 (OpenRouter runs, results schema v2, resume, `compare`, `report`, `publish`, first real run) are done. The leaderboard page is built from `data/` and deployed to GitHub Pages by `.github/workflows/pages.yml`. The CLI is on npm as `mcpbench`, and a GitHub Action (`uses: HITMANdark07/mcp-evals@v0`) gates pull requests on regressions. Next: a full re-run with NeatCode 0.1.5 on the paid models, harder tasks, and the general-tools suite.
+Milestones 1 (runner, graders, CLI) and 2 (OpenRouter runs, results schema v2, resume, `compare`, `report`, `publish`, first real run) are done. The leaderboard page is built from `data/` and deployed to GitHub Pages by `.github/workflows/pages.yml`. The CLI is on npm as `mcp-arena`, and a GitHub Action (`uses: HITMANdark07/mcp-evals@v0`) gates pull requests on regressions. Next: a full re-run with NeatCode 0.1.5 on the paid models, harder tasks, and the general-tools suite.
 
 ## License
 

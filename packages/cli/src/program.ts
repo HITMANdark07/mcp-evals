@@ -55,7 +55,7 @@ function nonNegativeNumber(flag: string) {
 export async function main(argv: string[], deps: ProgramDeps = defaultDeps): Promise<number> {
   let exitCode = 0;
   const program = new Command()
-    .name('mcpbench')
+    .name('mcp-arena')
     .description('Benchmark MCP servers and the models that use them')
     .version(CLI_VERSION)
     .exitOverride()

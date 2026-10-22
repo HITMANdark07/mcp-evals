@@ -33,19 +33,19 @@ jobs:
       - run: pnpm test
 
       # Smoke-test the npm package as users get it: pack, install outside the repo, run offline commands.
-      - name: Pack and smoke-test mcpbench
+      - name: Pack and smoke-test mcp-arena
         run: |
           set -euo pipefail
           pack_dir="${RUNNER_TEMP}/pack"
           app_dir="${RUNNER_TEMP}/app"
           mkdir -p "${pack_dir}" "${app_dir}"
           (cd packages/cli && pnpm pack --pack-destination "${pack_dir}")
-          tarball="$(ls "${pack_dir}"/mcpbench-*.tgz)"
+          tarball="$(ls "${pack_dir}"/mcp-arena-*.tgz)"
           tar -tzf "${tarball}"
           cp data/latest.json "${app_dir}/results.json"
           cd "${app_dir}"
           npm init -y > /dev/null
           npm install --no-audit --no-fund "${tarball}"
-          npx mcpbench --version
-          npx mcpbench report results.json --format markdown > /dev/null
-          npx mcpbench compare results.json results.json --format markdown
+          npx mcp-arena --version
+          npx mcp-arena report results.json --format markdown > /dev/null
+          npx mcp-arena compare results.json results.json --format markdown

@@ -1,6 +1,6 @@
 # GitHub Action: regression checks
 
-`HITMANdark07/mcp-evals` is a composite action that compares two `results.json` files with `mcpbench compare`, writes the table to the job summary, keeps one comment on the pull request up to date, and fails the job on a regression. The comparison is offline: the action needs no model API key. Only producing new results (`mcpbench run`) calls a model.
+`HITMANdark07/mcp-evals` is a composite action that compares two `results.json` files with `mcp-arena compare`, writes the table to the job summary, keeps one comment on the pull request up to date, and fails the job on a regression. The comparison is offline: the action needs no model API key. Only producing new results (`mcp-arena run`) calls a model.
 
 A cell (suite × server × model) is a regression when its task success drops by more than `max-success-drop` percentage points, or its median context tokens rise by more than `max-context-increase` percent. Incomplete cells are never compared as if complete. See [methodology](methodology.md) for what the numbers mean.
 
@@ -12,8 +12,8 @@ A cell (suite × server × model) is a regression when its task success drops by
 | `head` | required | New `results.json` to check. |
 | `max-success-drop` | `5` | Allowed drop in task success, in percentage points. |
 | `max-context-increase` | `20` | Allowed rise in median context tokens, in percent. |
-| `comment` | `true` | On `pull_request` events, create or update one PR comment (found by a hidden `<!-- mcpbench -->` marker). |
-| `mcpbench-version` | `0.2.0` | Version of the [`mcpbench`](https://www.npmjs.com/package/mcpbench) npm package to run. |
+| `comment` | `true` | On `pull_request` events, create or update one PR comment (found by a hidden `<!-- mcp-arena -->` marker). |
+| `mcp-arena-version` | `0.2.0` | Version of the [`mcp-arena`](https://www.npmjs.com/package/mcp-arena) npm package to run. |
 | `github-token` | `github.token` | Token used to post the comment. |
 
 Outputs: `exit-code` (`0` no regression, `1` regression, `2` invalid input) and `report` (path to the markdown report).
@@ -22,7 +22,7 @@ The step fails when `compare` exits 1 (regression) or 2 (missing or invalid resu
 
 ## Example: run the suite on each pull request
 
-The baseline is committed (here `bench/base.json`, written by `mcpbench run` on `main`). The job runs the suite against the pull request's code and compares. Running the suite needs `OPENROUTER_API_KEY` as a repository secret; secrets are not available to pull requests from forks.
+The baseline is committed (here `bench/base.json`, written by `mcp-arena run` on `main`). The job runs the suite against the pull request's code and compares. Running the suite needs `OPENROUTER_API_KEY` as a repository secret; secrets are not available to pull requests from forks.
 
 ```yaml
 name: MCP benchmark
@@ -49,7 +49,7 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          npx -y mcpbench@0.2.0 run bench/suite.yaml \
+          npx -y mcp-arena@0.2.0 run bench/suite.yaml \
             --models openai/gpt-6.1-sol --repeats 2 \
             --budget-usd 2 --out head.json --traces head-traces.jsonl
 
@@ -63,7 +63,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mcpbench-results
+          name: mcp-arena-results
           path: |
             head.json
             head-traces.jsonl
@@ -78,7 +78,7 @@ When results come from another job or workflow (a nightly run, a self-hosted run
 ```yaml
 jobs:
   compare:
-    needs: bench            # a job that uploaded an artifact named mcpbench-results
+    needs: bench            # a job that uploaded an artifact named mcp-arena-results
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -87,7 +87,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
-          name: mcpbench-results
+          name: mcp-arena-results
       - uses: HITMANdark07/mcp-evals@v0
         with:
           base: bench/base.json
@@ -99,5 +99,5 @@ To update the baseline, commit a new `bench/base.json` from a full run on `main`
 ## Running the same check locally
 
 ```bash
-npx mcpbench compare bench/base.json head.json --format markdown   # exit 1 on regression
+npx mcp-arena compare bench/base.json head.json --format markdown   # exit 1 on regression
 ```

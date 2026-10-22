@@ -20,11 +20,11 @@ const action = parseYaml(read('../../../action.yml')) as {
   runs: { using: string; steps: { uses?: string }[] };
 };
 
-describe('mcpbench package', () => {
-  it('is the public mcpbench package with both bin names', () => {
-    expect(cli.name).toBe('mcpbench');
+describe('mcp-arena package', () => {
+  it('is the public mcp-arena package with both bin names', () => {
+    expect(cli.name).toBe('mcp-arena');
     expect(cli.private).toBeUndefined();
-    expect(cli.bin).toEqual({ mcpbench: './dist/index.js', 'mcp-evals': './dist/index.js' });
+    expect(cli.bin).toEqual({ 'mcp-arena': './dist/index.js', 'mcp-evals': './dist/index.js' });
     expect(cli.files).toEqual(['dist', 'README.md', 'LICENSE']);
   });
 
@@ -40,7 +40,7 @@ describe('mcpbench package', () => {
 describe('action.yml', () => {
   it('is a composite action that defaults to the current package version', () => {
     expect(action.runs.using).toBe('composite');
-    expect(action.inputs['mcpbench-version']?.default).toBe(cli.version);
+    expect(action.inputs['mcp-arena-version']?.default).toBe(cli.version);
     expect(action.inputs.base?.required).toBe(true);
     expect(action.inputs.head?.required).toBe(true);
     expect(action.inputs['max-success-drop']?.default).toBe('5');

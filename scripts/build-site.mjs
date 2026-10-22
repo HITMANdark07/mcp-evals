@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds the static mcpbench leaderboard from data/ into site-dist/.
+// Builds the static mcp-arena leaderboard from data/ into site-dist/.
 //
 //   node scripts/build-site.mjs [--data <dir>] [--out <dir>]
 //

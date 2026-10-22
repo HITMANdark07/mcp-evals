@@ -1,4 +1,4 @@
-# Builds the mcpbench leaderboard from data/ and deploys it to GitHub Pages.
+# Builds the mcp-arena leaderboard from data/ and deploys it to GitHub Pages.
 # One-time setup: Settings → Pages → Build and deployment → Source = "GitHub Actions".
 name: Pages
 

@@ -1,5 +1,5 @@
-name: mcpbench compare
-description: Compare two mcpbench (mcp-evals) results files, post the table to the job summary and the pull request, and fail on a regression.
+name: mcp-arena compare
+description: Compare two mcp-arena (mcp-evals) results files, post the table to the job summary and the pull request, and fail on a regression.
 author: HITMANdark07
 branding:
   icon: bar-chart-2
@@ -24,8 +24,8 @@ inputs:
     description: 'On pull_request events, create or update one PR comment with the comparison (needs the pull-requests: write permission).'
     required: false
     default: 'true'
-  mcpbench-version:
-    description: Version of the mcpbench npm package to run.
+  mcp-arena-version:
+    description: Version of the mcp-arena npm package to run.
     required: false
     default: '0.2.0'
   github-token:
@@ -35,7 +35,7 @@ inputs:
 
 outputs:
   exit-code:
-    description: Exit code of `mcpbench compare` (0 no regression, 1 regression, 2 invalid input).
+    description: Exit code of `mcp-arena compare` (0 no regression, 1 regression, 2 invalid input).
     value: ${{ steps.compare.outputs.exit-code }}
   report:
     description: Path to the markdown report written by this action.
@@ -47,19 +47,19 @@ runs:
     - id: compare
       shell: bash
       env:
-        MCPBENCH_BASE: ${{ inputs.base }}
-        MCPBENCH_HEAD: ${{ inputs.head }}
-        MCPBENCH_MAX_SUCCESS_DROP: ${{ inputs.max-success-drop }}
-        MCPBENCH_MAX_CONTEXT_INCREASE: ${{ inputs.max-context-increase }}
-        MCPBENCH_VERSION: ${{ inputs.mcpbench-version }}
+        MCP_ARENA_BASE: ${{ inputs.base }}
+        MCP_ARENA_HEAD: ${{ inputs.head }}
+        MCP_ARENA_MAX_SUCCESS_DROP: ${{ inputs.max-success-drop }}
+        MCP_ARENA_MAX_CONTEXT_INCREASE: ${{ inputs.max-context-increase }}
+        MCP_ARENA_VERSION: ${{ inputs.mcp-arena-version }}
       run: |
         set -u
-        report="${RUNNER_TEMP}/mcpbench-compare.md"
-        out="${RUNNER_TEMP}/mcpbench-compare.out"
+        report="${RUNNER_TEMP}/mcp-arena-compare.md"
+        out="${RUNNER_TEMP}/mcp-arena-compare.out"
         set +e
-        npx --yes "mcpbench@${MCPBENCH_VERSION}" compare "${MCPBENCH_BASE}" "${MCPBENCH_HEAD}" \
-          --max-success-drop "${MCPBENCH_MAX_SUCCESS_DROP}" \
-          --max-context-increase "${MCPBENCH_MAX_CONTEXT_INCREASE}" \
+        npx --yes "mcp-arena@${MCP_ARENA_VERSION}" compare "${MCP_ARENA_BASE}" "${MCP_ARENA_HEAD}" \
+          --max-success-drop "${MCP_ARENA_MAX_SUCCESS_DROP}" \
+          --max-context-increase "${MCP_ARENA_MAX_CONTEXT_INCREASE}" \
           --format markdown > "${out}"
         code=$?
         set -e
@@ -69,10 +69,10 @@ runs:
           *) status="Compare failed (exit ${code})" ;;
         esac
         {
-          echo "<!-- mcpbench -->"
-          echo "### mcpbench compare: ${status}"
+          echo "<!-- mcp-arena -->"
+          echo "### mcp-arena compare: ${status}"
           echo
-          echo "Base \`${MCPBENCH_BASE}\` vs. head \`${MCPBENCH_HEAD}\` · mcpbench ${MCPBENCH_VERSION}"
+          echo "Base \`${MCP_ARENA_BASE}\` vs. head \`${MCP_ARENA_HEAD}\` · mcp-arena ${MCP_ARENA_VERSION}"
           echo
           cat "${out}"
         } > "${report}"
@@ -86,14 +86,14 @@ runs:
       continue-on-error: true
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
       env:
-        MCPBENCH_REPORT: ${{ steps.compare.outputs.report }}
+        MCP_ARENA_REPORT: ${{ steps.compare.outputs.report }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           const fs = require('fs');
-          const marker = '<!-- mcpbench -->';
+          const marker = '<!-- mcp-arena -->';
           const limit = 65000;
-          let body = fs.readFileSync(process.env.MCPBENCH_REPORT, 'utf8');
+          let body = fs.readFileSync(process.env.MCP_ARENA_REPORT, 'utf8');
           if (body.length > limit) body = body.slice(0, limit) + '\n\n… truncated; see the job summary for the full table.';
           const { owner, repo } = context.repo;
           const issue_number = context.payload.pull_request.number;
@@ -109,12 +109,12 @@ runs:
 
     - shell: bash
       env:
-        MCPBENCH_EXIT: ${{ steps.compare.outputs.exit-code }}
+        MCP_ARENA_EXIT: ${{ steps.compare.outputs.exit-code }}
       run: |
-        if [ "${MCPBENCH_EXIT}" = "1" ]; then
-          echo "::error title=mcpbench::Regression: see the comparison in the job summary."
+        if [ "${MCP_ARENA_EXIT}" = "1" ]; then
+          echo "::error title=mcp-arena::Regression: see the comparison in the job summary."
           exit 1
-        elif [ "${MCPBENCH_EXIT}" != "0" ]; then
-          echo "::error title=mcpbench::mcpbench compare failed with exit code ${MCPBENCH_EXIT}."
-          exit "${MCPBENCH_EXIT}"
+        elif [ "${MCP_ARENA_EXIT}" != "0" ]; then
+          echo "::error title=mcp-arena::mcp-arena compare failed with exit code ${MCP_ARENA_EXIT}."
+          exit "${MCP_ARENA_EXIT}"
         fi

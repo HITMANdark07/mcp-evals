@@ -1,8 +1,8 @@
-// mcpbench leaderboard: run picker and sortable tables. The latest run is already rendered
+// mcp-arena leaderboard: run picker and sortable tables. The latest run is already rendered
 // into the page by scripts/build-site.mjs; this only adds interaction.
 import { renderFooter, renderRun } from './render.js';
 
-const data = JSON.parse(document.getElementById('mcpbench-data').textContent);
+const data = JSON.parse(document.getElementById('mcp-arena-data').textContent);
 const byId = new Map(data.index.map((r) => [r.runId, r]));
 const picker = document.getElementById('run-picker');
 const view = document.getElementById('run-view');

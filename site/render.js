@@ -1,4 +1,4 @@
-// Shared renderer for the mcpbench leaderboard. Plain ES module with no dependencies:
+// Shared renderer for the mcp-arena leaderboard. Plain ES module with no dependencies:
 // scripts/build-site.mjs imports it to pre-render the latest run into index.html, and
 // app.js imports it in the browser to re-render when another run is picked.
 

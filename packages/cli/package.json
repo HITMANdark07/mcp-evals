@@ -1,5 +1,5 @@
 {
-  "name": "mcpbench",
+  "name": "mcp-arena",
   "version": "0.2.0",
   "description": "Benchmark MCP servers and the models that use them: run suites, grade answers, and gate CI on success and context regressions.",
   "license": "MIT",
@@ -30,7 +30,7 @@
     "node": ">=20"
   },
   "bin": {
-    "mcpbench": "./dist/index.js",
+    "mcp-arena": "./dist/index.js",
     "mcp-evals": "./dist/index.js"
   },
   "files": [

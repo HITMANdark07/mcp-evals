@@ -49,7 +49,7 @@ describe('build-site against the published data/', () => {
     for (const f of ['index.html', 'style.css', 'app.js', 'render.js', 'data/index.json', 'data/latest.json']) {
       expect(existsSync(join(out, f)), f).toBe(true);
     }
-    expect(html).toContain('<title>mcpbench leaderboard</title>');
+    expect(html).toContain('<title>mcp-arena leaderboard</title>');
   });
 
   it('lists every published run, latest first, with its results and traces copied', async () => {
@@ -133,7 +133,7 @@ describe('build-site with several runs', () => {
     expect(html).toContain(`<option value="${base.runId}" selected>`);
     expect(html).toMatch(/· partial<\/option>/);
     // The partial run is embedded for the picker; its warnings come from the shared renderer.
-    const embedded = JSON.parse(html.slice(html.indexOf('>', html.indexOf('id="mcpbench-data"')) + 1, html.lastIndexOf('</script>'))) as {
+    const embedded = JSON.parse(html.slice(html.indexOf('>', html.indexOf('id="mcp-arena-data"')) + 1, html.lastIndexOf('</script>'))) as {
       results: Record<string, Results>;
     };
     // Every published run plus the synthetic partial one.
