@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { access, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { buildFakeServer } from '../../test/fixtures/fake-server.mjs';
 import { ConfigError, CostUnknownError, InfraError, OutOfCreditsError, ProviderError } from '../errors.js';
@@ -698,5 +699,59 @@ tasks:
     expect(out.records[0]!.outcome).toBe('pass');
     expect(seen[0]).toMatchObject({ task: 'damaged_item', seed: '3', suite_dir: '/tmp/suites' });
     expect(seen[0]!.fixture).toBeTruthy();
+  });
+});
+
+describe('hidden tools and env_reward', () => {
+  const ENV_SUITE = `
+suite: env
+version: 1
+servers:
+  env: { command: unused, hidden_tools: [__score] }
+models: [mock/a]
+defaults: { repeats: 1, max_steps: 4, timeout_s: 10 }
+tasks:
+  - id: act
+    prompt: "ENV act once"
+    graders: [{ type: env_reward, tool: __score }]
+  - id: peek
+    prompt: "ENV peek"
+    graders: [{ type: env_reward, tool: __score }]
+`;
+  function envServer() {
+    let actions = 0;
+    const server = new McpServer({ name: 'env', version: '1' });
+    server.registerTool('act', { description: 'Do the task' }, async () => {
+      actions++;
+      return { content: [{ type: 'text', text: 'done' }] };
+    });
+    server.registerTool('__score', { description: 'harness only' }, async () => ({ content: [{ type: 'text', text: JSON.stringify({ reward: actions >= 1 ? 1 : 0 }) }] }));
+    return server;
+  }
+  const script = parseMockScript({
+    entries: [
+      { match: 'ENV act once', steps: [{ toolCalls: [{ name: 'act', arguments: {} }] }, { content: 'finished' }] },
+      { match: 'ENV peek', steps: [{ toolCalls: [{ name: '__score', arguments: {} }] }, { content: 'peeked' }] },
+    ],
+  });
+
+  it('scores through the hidden tool on the same connection and never offers it to the model', async () => {
+    const offered: string[][] = [];
+    const inner = new MockProvider(script);
+    const provider = { name: 'mock', chat: async (req: ChatRequest) => { offered.push(req.tools.map((t) => t.name)); return inner.chat(req); } };
+    const out = await runSuites(await opts({ suites: [parseSuite(ENV_SUITE, 'env.yaml')], provider, connector: createInMemoryConnector(() => envServer()) }));
+    const act = out.records.find((r) => r.task === 'act')!;
+    expect(act.outcome).toBe('pass');
+    expect(act.graders[0]).toMatchObject({ type: 'env_reward', pass: true, value: 1 });
+    expect(offered.every((names) => !names.includes('__score'))).toBe(true);
+    const peek = out.records.find((r) => r.task === 'peek')!;
+    expect(peek).toMatchObject({ outcome: 'fail', end: 'invalid_tool_call' });
+  });
+
+  it('errors the run when the env_reward tool does not exist', async () => {
+    const suite = parseSuite(ENV_SUITE.replace(/tool: __score/g, 'tool: __missing'), 'env.yaml');
+    const out = await runSuites(await opts({ suites: [suite], provider: new MockProvider(script), connector: createInMemoryConnector(() => envServer()) }));
+    expect(out.records[0]).toMatchObject({ outcome: 'error' });
+    expect(out.records[0]!.failReason).toMatch(/unknown tool "__missing"/);
   });
 });

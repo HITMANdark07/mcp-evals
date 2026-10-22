@@ -112,7 +112,7 @@ mcp-arena run suites/code-navigation.yaml \
 
 ## Suites
 
-Suites are YAML: servers (command, args, setup), models with their pinned provider, tasks with graders (`answer_contains_all`, `answer_matches`, `answer_json_schema`, `tool_called`, `tool_args_match`, `fs_state`, `llm_judge`) and limits. See [`suites/code-navigation.yaml`](suites/code-navigation.yaml) and [`suites/general-tools.yaml`](suites/general-tools.yaml).
+Suites are YAML: servers (command, args, setup, `hidden_tools`), models with their pinned provider, tasks with graders (`answer_contains_all`, `answer_matches`, `answer_json_schema`, `tool_called`, `tool_args_match`, `fs_state`, `llm_judge`, `env_reward`) and limits. Tasks can set `vars`, substituted as `{name}` into server args and prompts alongside `{fixture}` and `{suite_dir}`. For environments that score themselves (RL environments), list the scoring tool in the server's `hidden_tools` so agents never see it, and grade with `{ type: env_reward, tool: <name>, min: 1 }`: after the run, mcp-evals calls the tool on the same connection and reads `{"reward": <number>}`. See [`suites/code-navigation.yaml`](suites/code-navigation.yaml) and [`suites/general-tools.yaml`](suites/general-tools.yaml).
 
 ## Status
 

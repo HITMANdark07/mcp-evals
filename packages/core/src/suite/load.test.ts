@@ -230,3 +230,16 @@ describe('task vars', () => {
     expect(() => parseSuite(withVars('{ seed1: "1" }'))).toThrow(/vars/);
   });
 });
+
+describe('hidden_tools and env_reward', () => {
+  const suiteWith = (server: string, grader: string) =>
+    yaml({ servers: `servers:\n  env: ${server}`, tasks: ['tasks:', '  - id: t', '    prompt: "go"', `    graders: [${grader}]`].join('\n') });
+  it('parses hidden tools and env_reward with a default min of 1', () => {
+    const s = parseSuite(suiteWith('{ command: node, hidden_tools: [__score] }', '{ type: env_reward, tool: __score }'));
+    expect(s.servers.env!.hiddenTools).toEqual(['__score']);
+    expect(s.tasks[0]!.graders[0]).toEqual({ type: 'env_reward', tool: '__score', min: 1 });
+  });
+  it('rejects a min outside 0..1', () => {
+    expect(() => parseSuite(suiteWith('{ command: node }', '{ type: env_reward, tool: s, min: 2 }'))).toThrow(/min/);
+  });
+});

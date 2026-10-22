@@ -1,9 +1,9 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join, posix } from 'node:path';
-import { ConfigError } from './errors.js';
+import { ConfigError, InfraError } from './errors.js';
 import { extractJson, validateJson } from './grading/json-schema.js';
 import { runJudge, type JudgeConfig } from './grading/judge.js';
-import type { GraderResult, GraderSpec, LoopEnd, TraceEvent } from './types.js';
+import type { GraderResult, GraderSpec, LoopEnd, McpConnection, TraceEvent } from './types.js';
 import { isPlainObject, sha256Hex } from './util.js';
 
 export interface GradeContext {
@@ -17,6 +17,10 @@ export interface GradeContext {
   taskPrompt?: string;
   /** Judge for llm_judge graders (from the suite's judge: block). */
   judge?: JudgeConfig;
+  /** The run's live server connection, for env_reward. */
+  connection?: McpConnection;
+  /** Per-call tool timeout for env_reward (suite defaults.tool_timeout_s). */
+  toolTimeoutMs?: number;
 }
 
 type JudgeSpec = Extract<GraderSpec, { type: 'llm_judge' }>;
@@ -164,6 +168,25 @@ async function gradeOne(spec: GraderSpec, ctx: GradeContext): Promise<GraderResu
         if (before !== after) failures.push('file changed');
       }
       return result(spec, failures.length === 0, failures.length ? `${rel}: ${failures.join(', ')}` : `${rel}: ok`);
+    }
+    case 'env_reward': {
+      if (!ctx.connection) return result(spec, false, 'no server connection to score with');
+      let reply: { text: string; isError: boolean };
+      try {
+        reply = await ctx.connection.callTool(spec.tool, {}, ctx.toolTimeoutMs ?? 60_000);
+      } catch (e) {
+        if (e instanceof InfraError) throw e;
+        return result(spec, false, `${spec.tool} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (reply.isError) return result(spec, false, `${spec.tool} returned an error: ${reply.text.slice(0, 200)}`);
+      let reward: unknown;
+      try {
+        reward = (JSON.parse(reply.text) as { reward?: unknown }).reward;
+      } catch {
+        return result(spec, false, `${spec.tool} did not return JSON`);
+      }
+      if (typeof reward !== 'number' || !Number.isFinite(reward)) return result(spec, false, `${spec.tool} returned no numeric reward`);
+      return { ...result(spec, reward >= spec.min, `reward ${reward} (needs ${spec.min})`), value: reward };
     }
     case 'max_steps':
       return result(spec, ctx.steps <= spec.value, `${ctx.steps} steps (limit ${spec.value})`);

@@ -39,6 +39,7 @@ const GraderSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('fs_state'), path: z.string().min(1), exists: z.boolean().optional(), contains: z.string().optional(), unchanged: z.boolean().optional(), ...serverRef }).strict(),
   z.object({ type: z.literal('max_steps'), ...budget }).strict(),
   z.object({ type: z.literal('max_context_tokens'), ...budget }).strict(),
+  z.object({ type: z.literal('env_reward'), tool: z.string().min(1), min: z.number().min(0).max(1).default(1), ...serverRef }).strict(),
 ]);
 
 const ServerSchema = z
@@ -49,6 +50,7 @@ const ServerSchema = z
     url: z.url().optional(),
     headers: z.record(z.string(), z.string()).default({}),
     setup: z.string().min(1).optional(),
+    hidden_tools: z.array(z.string().min(1)).default([]),
   })
   .strict()
   .refine((s) => (s.command === undefined) !== (s.url === undefined), { message: 'server needs exactly one of command or url' });
@@ -210,6 +212,7 @@ function toSuite(s: RawSuite, source: string): Suite {
       ...(srv.url !== undefined ? { url: srv.url } : {}),
       headers: srv.headers,
       ...(srv.setup !== undefined ? { setup: srv.setup } : {}),
+      ...(srv.hidden_tools.length > 0 ? { hiddenTools: srv.hidden_tools } : {}),
     };
   }
   const tasks: TaskSpec[] = s.tasks.map((t) => ({
@@ -270,5 +273,7 @@ function toGrader(g: RawGrader): GraderSpec {
     case 'max_steps':
     case 'max_context_tokens':
       return { type: g.type, value: g.value, strict: g.strict, ...server };
+    case 'env_reward':
+      return { type: g.type, tool: g.tool, min: g.min, ...server };
   }
 }

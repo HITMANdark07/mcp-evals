@@ -195,3 +195,39 @@ describe('fs_state edge cases (M1 follow-up)', () => {
     await chmod(join(dir, 'secret.txt'), 0o600);
   });
 });
+
+describe('env_reward', () => {
+  const conn = (reply: { text: string; isError?: boolean } | Error) => ({
+    calls: [] as Array<{ name: string; args: unknown }>,
+    async listTools() { return []; },
+    async callTool(name: string, args: Record<string, unknown>) {
+      this.calls.push({ name, args });
+      if (reply instanceof Error) throw reply;
+      return { text: reply.text, isError: reply.isError ?? false };
+    },
+    stderr: () => '',
+    async close() {},
+  });
+  const spec: GraderSpec = { type: 'env_reward', tool: '__score', min: 1 };
+
+  it('passes at or above min and records the reward', async () => {
+    const c = conn({ text: '{"reward":1,"passed":true}' });
+    const r = await one(spec, ctx({ connection: c }));
+    expect(r).toMatchObject({ pass: true, value: 1 });
+    expect(c.calls).toEqual([{ name: '__score', args: {} }]);
+    expect(await one({ ...spec, min: 0.5 }, ctx({ connection: conn({ text: '{"reward":0.75}' }) }))).toMatchObject({ pass: true, value: 0.75 });
+    expect(await one(spec, ctx({ connection: conn({ text: '{"reward":0.75}' }) }))).toMatchObject({ pass: false, value: 0.75 });
+  });
+
+  it('fails clearly without a connection, on tool errors and on malformed replies', async () => {
+    expect((await one(spec)).detail).toMatch(/no server connection/);
+    expect((await one(spec, ctx({ connection: conn({ text: 'boom', isError: true }) }))).detail).toMatch(/returned an error/);
+    expect((await one(spec, ctx({ connection: conn({ text: 'not json' }) }))).detail).toMatch(/did not return JSON/);
+    expect((await one(spec, ctx({ connection: conn({ text: '{"reward":"1"}' }) }))).detail).toMatch(/no numeric reward/);
+  });
+
+  it('lets infrastructure errors propagate so the run is retried', async () => {
+    const { InfraError } = await import('./errors.js');
+    await expect(one(spec, ctx({ connection: conn(new InfraError('server', 'closed', true)) }))).rejects.toThrow(/closed/);
+  });
+});

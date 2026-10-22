@@ -246,7 +246,8 @@ async function runOne(o: RunSuitesOptions, target: RunTarget, overBudget: (runCo
       }
       // Snapshot after setup and server start, so fs_state judges only the agent's changes.
       const snapshot = await snapshotDir(ws.dir);
-      const tools = convertTools(listed);
+      const hidden = new Set(server.hiddenTools ?? []);
+      const tools = convertTools(listed.filter((t) => !hidden.has(t.name)));
       const prompt = substituteVars(task.prompt, vars);
       const priorCost = costUsd;
       result = await runAgentLoop({
@@ -278,6 +279,8 @@ async function runOne(o: RunSuitesOptions, target: RunTarget, overBudget: (runCo
         contextTokens: result.contextTokens,
         workspace: { dir: ws.dir, snapshot },
         taskPrompt: prompt,
+        connection: conn,
+        toolTimeoutMs: suite.defaults.toolTimeoutS * 1000,
         ...(suite.judge ? { judge: { provider: o.provider, model: suite.judge.id, providerPin: suite.judge.provider, sleep } } : {}),
       });
       costUsd += gradersCostUsd(graders);
@@ -325,7 +328,7 @@ async function runOne(o: RunSuitesOptions, target: RunTarget, overBudget: (runCo
 function unknownGraderTool(task: TaskSpec, serverName: string, available: string[]): string | undefined {
   for (const g of task.graders) {
     if (g.server !== undefined && g.server !== serverName) continue;
-    if ((g.type === 'tool_called' || g.type === 'tool_args_match') && !available.includes(g.tool)) return g.tool;
+    if ((g.type === 'tool_called' || g.type === 'tool_args_match' || g.type === 'env_reward') && !available.includes(g.tool)) return g.tool;
   }
   return undefined;
 }

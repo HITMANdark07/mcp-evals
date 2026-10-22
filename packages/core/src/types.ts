@@ -13,6 +13,8 @@ export interface ServerSpec {
   url?: string;
   headers: Record<string, string>;
   setup?: string;
+  /** Listed by the server but never offered to the model (for example a harness-only scoring tool). */
+  hiddenTools?: string[];
 }
 
 /** The JSON Schema subset supported by answer_json_schema. */
@@ -41,7 +43,8 @@ export type GraderSpec =
   | (GraderBase & { type: 'tool_args_match'; tool: string; args: JsonObject })
   | (GraderBase & { type: 'fs_state'; path: string; exists?: boolean; contains?: string; unchanged?: boolean })
   | (GraderBase & { type: 'max_steps'; value: number; strict: boolean })
-  | (GraderBase & { type: 'max_context_tokens'; value: number; strict: boolean });
+  | (GraderBase & { type: 'max_context_tokens'; value: number; strict: boolean })
+  | (GraderBase & { type: 'env_reward'; tool: string; min: number });
 
 export type GraderType = GraderSpec['type'];
 
@@ -195,6 +198,8 @@ export interface GraderResult {
   detail: string;
   /** Spend of model-graded checks (llm_judge); added to the run's cost. */
   costUsd?: number;
+  /** Numeric result of an env_reward grader (the environment's reward). */
+  value?: number;
 }
 
 export type Outcome = 'pass' | 'fail' | 'error';
